@@ -114,19 +114,19 @@ function Graph(flags, builder = undefined) constructor
 	static IsDirected = function()
 	{
 		gml_pragma("forceinline");
-		return (bitmask_has(self.__flags, GraphFlags.GRAPH_DIRECTED));
+        return (self.__flags & GraphFlags.GRAPH_DIRECTED) != 0;
 	}
 	
 	static IsImmutable = function()
 	{
 		gml_pragma("forceinline");
-		return (bitmask_has(self.__flags, GraphFlags.GRAPH_IMMUTABLE));
+        return (self.__flags & GraphFlags.GRAPH_IMMUTABLE) != 0;
 	}
 
 	static IsWeighted = function()
 	{
 		gml_pragma("forceinline");
-		return (bitmask_has(self.__flags, GraphFlags.GRAPH_WEIGHTED));
+        return (self.__flags & GraphFlags.GRAPH_WEIGHTED) != 0;
 	}
 
 	static HasNode = function(node)
@@ -390,7 +390,7 @@ function Graph(flags, builder = undefined) constructor
 	static Freeze = function()
 	{
 		gml_pragma("forceinline");
-		self.__flags = bitmask_add(self.__flags, GraphFlags.GRAPH_IMMUTABLE);
+		self.__flags |= GraphFlags.GRAPH_IMMUTABLE;
 		return (self);
 	}
 
@@ -530,7 +530,7 @@ function Graph(flags, builder = undefined) constructor
 	{
 		if (self.IsImmutable() || from == undefined || to == undefined || self.HasEdge(from, to))
 			return (self);
-		if (from == to && !bitmask_has(self.__flags, GraphFlags.GRAPH_ALLOW_SELF_LOOP))
+		if (from == to && !(self.__flags & GraphFlags.GRAPH_ALLOW_SELF_LOOP))
 			return (self);
 		if (!self.IsWeighted())
 			weight = 1;

@@ -6,7 +6,7 @@
   "name":"graphs",
   "parent":{
     "name":"Graph",
-    "path":"Graph.yyp",
+    "path":"folders/Graph.yy",
   },
   "resourceType":"GMScript",
   "resourceVersion":"2.0",
