@@ -628,6 +628,7 @@ function __reconstructPath(previous, source, target)
 	return (_path);
 }
 
+/*
 show_debug_message("\n####### Tests #######");
 _graph = new Graph(GraphFlags.GRAPH_NONE | GraphFlags.GRAPH_WEIGHTED);
 _graph.AddEdge(new Edge("a", "b", 1));
@@ -639,4 +640,4 @@ _graph.AddEdge("e", "f");
 _graph.AddEdge("f", "a");
 show_debug_message($"Shortest Path from D to A {string(_graph.GetShortestPathData("d", "a"))}")
 show_debug_message($"Node Count: {_graph.GetNodeCount()}  Edge Count: {_graph.GetEdgeCount()}");
-show_debug_message("#####################\n");
+show_debug_message("#####################\n");*/
