@@ -22,6 +22,7 @@
   "name":"Graph",
   "resources":[
     {"id":{"name":"Room1","path":"rooms/Room1/Room1.yy",},},
+    {"id":{"name":"graph_tester","path":"scripts/graph_tester/graph_tester.yy",},},
     {"id":{"name":"graphs","path":"scripts/graphs/graphs.yy",},},
   ],
   "resourceType":"GMProject",

@@ -1,6 +1,4 @@
 
-#macro __GRAPH_ALL	GraphFlags.GRAPH_ALLOW_SELF_LOOP | GraphFlags.GRAPH_DIRECTED | GraphFlags.GRAPH_IMMUTABLE | GraphFlags.GRAPH_WEIGHTED
-
 enum GraphFlags
 {
 	GRAPH_NONE					= 0,
@@ -8,7 +6,7 @@ enum GraphFlags
 	GRAPH_WEIGHTED				= 1 << 1,
 	GRAPH_ALLOW_SELF_LOOP		= 1 << 2,
 	GRAPH_IMMUTABLE				= 1 << 3,
-	GRAPH_ALL					= __GRAPH_ALL
+	GRAPH_ALL					= GraphFlags.GRAPH_DIRECTED | GraphFlags.GRAPH_WEIGHTED | GraphFlags.GRAPH_ALLOW_SELF_LOOP | GraphFlags.GRAPH_IMMUTABLE
 };
 
 function Edge(from, to, weight = 1) constructor
@@ -22,13 +20,17 @@ function Graph(flags, builder = undefined) constructor
 {
 	self.__flags = flags
 	self.__flags &= ~GraphFlags.GRAPH_IMMUTABLE;
-	if (builder != undefined)
-		self.__build__(builder);
 
-	self.__flags = flags;
 	self.__graph = {};
+	self.__in_edges = {};
 	self.__edge_count = 0;
 	self.__node_count = 0;
+
+	if (builder != undefined)
+		self.__build__(builder);
+	self.__flags = flags;
+	if (self.IsImmutable())
+		self.Freeze();
 
 	#region Algorithm
 
@@ -37,13 +39,16 @@ function Graph(flags, builder = undefined) constructor
 		if (!self.HasNode(source))
 			return (undefined);
 		var _result = [];
-		var _queue = [source];
+		var _queue = ds_queue_create();
 		var _previous = {};
 		var _visited = {};
+
 		_visited[$ source] = true;
-		while (array_length(_queue) > 0)
+		ds_queue_enqueue(_queue, source);
+
+		while (!ds_queue_empty(_queue))
 		{
-			var _current = array_shift(_queue);
+			var _current = ds_queue_dequeue(_queue);
 			array_push(_result, _current);
 			if (callback != undefined)
 				callback(_current, _previous[$ _current]);
@@ -57,9 +62,10 @@ function Graph(flags, builder = undefined) constructor
 					continue ;
 				_visited[$ _neighbor] = true;
 				_previous[$ _neighbor] = _current;
-				array_push(_queue, _neighbor);
+				ds_queue_enqueue(_queue, _neighbor);
 			}
 		}
+		ds_queue_destroy(_queue);
 		return ({visited: _result, previous: _previous});
 	}
 
@@ -114,19 +120,19 @@ function Graph(flags, builder = undefined) constructor
 	static IsDirected = function()
 	{
 		gml_pragma("forceinline");
-        return (self.__flags & GraphFlags.GRAPH_DIRECTED) != 0;
+		return (self.__flags & GraphFlags.GRAPH_DIRECTED) != 0;
 	}
 	
 	static IsImmutable = function()
 	{
 		gml_pragma("forceinline");
-        return (self.__flags & GraphFlags.GRAPH_IMMUTABLE) != 0;
+		return (self.__flags & GraphFlags.GRAPH_IMMUTABLE) != 0;
 	}
 
 	static IsWeighted = function()
 	{
 		gml_pragma("forceinline");
-        return (self.__flags & GraphFlags.GRAPH_WEIGHTED) != 0;
+		return (self.__flags & GraphFlags.GRAPH_WEIGHTED) != 0;
 	}
 
 	static HasNode = function(node)
@@ -390,6 +396,7 @@ function Graph(flags, builder = undefined) constructor
 	static Freeze = function()
 	{
 		gml_pragma("forceinline");
+		/*Immutable Graph could be optimized in the future*/
 		self.__flags |= GraphFlags.GRAPH_IMMUTABLE;
 		return (self);
 	}
@@ -490,6 +497,8 @@ function Graph(flags, builder = undefined) constructor
 	static AddNode = function(node)
 	{
 		gml_pragma("forceinline");
+		if (self.IsImmutable())
+			return (self);
 		if (node != undefined && !self.__graph[$ node])
 		{
 			self.__graph[$ node] = {};
@@ -627,17 +636,3 @@ function __reconstructPath(previous, source, target)
 	}
 	return (_path);
 }
-
-/*
-show_debug_message("\n####### Tests #######");
-_graph = new Graph(GraphFlags.GRAPH_NONE | GraphFlags.GRAPH_WEIGHTED);
-_graph.AddEdge(new Edge("a", "b", 1));
-_graph.AddEdge("c", "a", 3);
-_graph.AddEdge("c", "b", 4);
-_graph.AddEdge("d", "c");
-_graph.AddEdge("d", "e");
-_graph.AddEdge("e", "f");
-_graph.AddEdge("f", "a");
-show_debug_message($"Shortest Path from D to A {string(_graph.GetShortestPathData("d", "a"))}")
-show_debug_message($"Node Count: {_graph.GetNodeCount()}  Edge Count: {_graph.GetEdgeCount()}");
-show_debug_message("#####################\n");*/
