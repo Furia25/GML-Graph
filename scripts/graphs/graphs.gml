@@ -9,6 +9,11 @@ enum GraphFlags
 	GRAPH_ALL					= GraphFlags.GRAPH_DIRECTED | GraphFlags.GRAPH_WEIGHTED | GraphFlags.GRAPH_ALLOW_SELF_LOOP | GraphFlags.GRAPH_IMMUTABLE
 };
 
+/// @description Creates a new edge structure connecting two nodes
+/// @param {Any} from The source node
+/// @param {Any} to The target node
+/// @param {Real} weight The edge weight (default: 1)
+/// @return {Struct.Edge}
 function Edge(from, to, weight = 1) constructor
 {
 	self.from = from;
@@ -16,15 +21,31 @@ function Edge(from, to, weight = 1) constructor
 	self.weight = weight;
 }
 
+/// @description Creates a new graph data structure with specified configuration
+/// @param {Real} flags Bitwise flags from GraphFlags enum to configure the graph
+/// @param {Any} [builder] Optional builder with multiple initialization options. See documentation for all possibilities
+/// @return {Struct.self}
 function Graph(flags, builder = undefined) constructor
 {
+	static __graph_count = 0;
+
+	self.__graph_id = __graph_count++;
 	self.__flags = flags
 	self.__flags &= ~GraphFlags.GRAPH_IMMUTABLE;
 
 	self.__graph = {};
-	self.__in_edges = {};
+
 	self.__edge_count = 0;
 	self.__node_count = 0;
+
+	self.__edge_cache = undefined;
+	self.__edge_dirty = true;
+
+	self.__node_cache = undefined;
+	self.__node_dirty = true;
+
+	self.__structure_dirty = true;
+	self.__components_cache = undefined;
 
 	if (builder != undefined)
 		self.__build__(builder);
@@ -34,10 +55,17 @@ function Graph(flags, builder = undefined) constructor
 
 	#region Algorithm
 
+	/// @description Performs breadth-first search traversal from source node
+	/// @param {Any} source The starting node for traversal
+	/// @param {Any} [target] Optional target node to stop at when found
+	/// @param {Function} [callback] Optional callback function(current_node, previous_node) called for each visited node
+	/// @return {Struct} Returns {visited: array of nodes in visit order, previous: struct mapping nodes to their predecessors}
 	static BFS = function(source, target = undefined, callback = undefined)
 	{
 		if (!self.HasNode(source))
-			return (undefined);
+			self.__throw__($"Node {source} does not exist");
+		if (target != undefined && !self.HasNode(target))
+			self.__throw__($"Node {target} does not exist");
 		var _result = [];
 		var _queue = ds_queue_create();
 		var _previous = {};
@@ -69,10 +97,26 @@ function Graph(flags, builder = undefined) constructor
 		return ({visited: _result, previous: _previous});
 	}
 
+	/// @description Performs depth-first search traversal from source node (NOT YET IMPLEMENTED)
+	/// @param {Any} source The starting node for traversal
+	/// @param {Any} [target] Optional target node to stop at when found
+	/// @param {Function} [callback] Optional callback function called for each visited node
+	/// @return {Struct} Returns traversal result structure
+	static DFS = function(source, target = undefined, callback = undefined)
+	{
+		//to implement
+	}
+
+	/// @description Finds shortest paths from source to all reachable nodes using Dijkstra's algorithm
+	/// @param {Any} source The starting node
+	/// @param {Any} [target] Optional target node to stop at when found
+	/// @return {Struct} Returns {distances: struct mapping nodes to shortest distances, previous: struct mapping nodes to predecessors}
 	static Dijkstra = function(source, target = undefined)
 	{
-		if (!self.HasNode(source) || (target != undefined && !self.HasNode(target)))
-			return (undefined);
+		if (!self.HasNode(source))
+			self.__throw__($"Node {source} does not exist");
+		if (target != undefined && !self.HasNode(target))
+			self.__throw__($"Node {target} does not exist");
 		var _prev = {};
 		var _distances = {};
 		var _visited = {};
@@ -84,21 +128,24 @@ function Graph(flags, builder = undefined) constructor
 		while (!ds_priority_empty(_queue))
 		{
 			var _u = ds_priority_delete_min(_queue);
-			if (_visited[$ _u]) continue ;
+			if (_visited[$ _u])
+				continue ;
 			_visited[$ _u] = true;
 
-			if (_u == target) break ;
+			if (_u == target)
+				break ;
 
 			var _neighbors = self.GetNeighbors(_u);
 			for (var i = 0; i < array_length(_neighbors); i++)
 			{
 				var _v = _neighbors[i];
-				if (_visited[$ _v]) continue ;
+				if (_visited[$ _v])
+					continue ;
 				var _weight = self.__graph[$ _u][$ _v];
 				if (_weight < 0)
 				{
 					ds_priority_destroy(_queue);
-					return (undefined);
+					self.__throw__("Graph contain negative weights, dijkstra failed.");
 				}
 				var _alt = _distances[$ _u] + _weight;
 				if (_distances[$ _v] == undefined || _alt < _distances[$ _v])
@@ -117,42 +164,61 @@ function Graph(flags, builder = undefined) constructor
 
 	#region Checks
 
+	/// @description Checks if the graph is directed
+	/// @return {Bool} Returns true if graph is directed, false otherwise
 	static IsDirected = function()
 	{
 		gml_pragma("forceinline");
 		return (self.__flags & GraphFlags.GRAPH_DIRECTED) != 0;
 	}
-	
+
+	/// @description Checks if the graph is immutable (read-only)
+	/// @return {Bool} Returns true if graph is immutable, false otherwise
 	static IsImmutable = function()
 	{
 		gml_pragma("forceinline");
 		return (self.__flags & GraphFlags.GRAPH_IMMUTABLE) != 0;
 	}
 
+	/// @description Checks if the graph supports weighted edges
+	/// @return {Bool} Returns true if graph is weighted, false otherwise
 	static IsWeighted = function()
 	{
 		gml_pragma("forceinline");
 		return (self.__flags & GraphFlags.GRAPH_WEIGHTED) != 0;
 	}
 
+	/// @description Checks if a node exists in the graph
+	/// @param {Any} node The node to check
+	/// @return {Bool} Returns true if node exists, false otherwise
 	static HasNode = function(node)
 	{
 		gml_pragma("forceinline");
 		return (self.__graph[$ node] != undefined);
 	}
 
+	/// @description Checks if an edge exists between two nodes
+	/// @param {Any} from The source node
+	/// @param {Any} to The target node
+	/// @return {Bool} Returns true if edge exists, false otherwise
 	static HasEdge = function(from, to)
 	{
 		gml_pragma("forceinline");
 		return (self.__graph[$ from] != undefined && (self.__graph[$ from][$ to] != undefined));
 	}
 
+	/// @description Checks if a path exists between two nodes
+	/// @param {Any} from The source node
+	/// @param {Any} to The target node
+	/// @return {Bool} Returns true if a path exists, false otherwise
 	static HasPath = function(from, to)
 	{
 		gml_pragma("forceinline");
 		return (__isBFSPathValid(self.BFS(from, to), from, to));
 	}
 
+	/// @description Checks if the graph is fully connected (single component)
+	/// @return {Bool} Returns true if graph has exactly one connected component
 	static IsConnected = function()
 	{
 		gml_pragma("forceinline");
@@ -163,45 +229,81 @@ function Graph(flags, builder = undefined) constructor
 
 	#region Getters / Setters
 
+	/// @description Retrieves the edge structure between two nodes
+	/// @param {Any} from The source node
+	/// @param {Any} to The target node
+	/// @return {Struct.Edge} Returns the Edge struct
 	static GetEdge = function(from, to)
 	{
-		gml_pragma("forceinline");
-		return (self.HasEdge(from, to) ? new Edge(from, to, self.__graph[$ from][$ to]) : undefined);
+		gml_pragma("forceinline")
+		if (!self.HasEdge(from, to))
+			self.__throw__($"Edge {from} -> {to} does not exist");
+		return (new Edge(from, to, self.__graph[$ from][$ to]));
 	}
-	
+
+	/// @description Gets the weight of an edge between two nodes
+	/// @param {Any} from The source node
+	/// @param {Any} to The target node
+	/// @return {Real} Returns the edge weight
 	static GetWeight = function(from, to)
 	{
 		gml_pragma("forceinline");
 		if (!self.HasEdge(from, to))
-			throw ("Edge does not exist");
+			self.__throw__($"Edge {from} -> {to} does not exist");
 		return (self.__graph[$ from][$ to]);
 	}
 
+	/// @description Sets the weight of an existing edge (weighted graphs only)
+	/// @param {Any} from The source node
+	/// @param {Any} to The target node
+	/// @param {Real} weight The new weight value
+	/// @return {Struct.self} Returns self for method chaining
 	static SetWeight = function (from, to, weight)
 	{
-		if (self.IsImmutable() || !self.IsWeighted() || !self.HasEdge(from, to))
+		if (self.IsImmutable())
 			return (self);
+		if (!self.IsWeighted())
+			self.__throw__("Cannot set weight on non-weighted graph.");
+		if (!self.HasEdge(from, to))
+			self.__throw__($"Edge {from} -> {to} does not exist");
 		self.__graph[$ from][$ to] = weight;
 		if (!self.IsDirected())
 			self.__graph[$ to][$ from] = weight;
+		self.__edge_dirty = true;
 		return (self);
 	}
 
+	/// @description Gets an array of all nodes in the graph
+	/// @return {Array<String>} Returns array of node identifiers
 	static GetNodes = function()
 	{
 		gml_pragma("forceinline");
-		return (variable_struct_get_names(self.__graph));
+		if (self.__node_dirty)
+		{
+			self.__node_dirty = false;
+			self.__node_cache = variable_struct_get_names(self.__graph);
+		}
+		return (self.__node_cache);
 	}
 
+	/// @description Gets all neighbors (adjacent nodes) of a given node
+	/// @param {Any} node The node to get neighbors for
+	/// @return {Array<String>} Returns array of neighboring node identifiers
 	static GetNeighbors = function(node)
 	{
 		gml_pragma("forceinline");
-		return (self.HasNode(node) ? variable_struct_get_names(self.__graph[$ node]) : []);
+		if (!self.HasNode(node))
+			self.__throw__($"Node {node} does not exist");
+		return (variable_struct_get_names(self.__graph[$ node]));
 	}
 
+	/// @description Gets an array of all edges in the graph
+	/// @return {Array<Struct.Edge>} Returns array of Edge structs
 	static GetEdges = function()
 	{
-		var _edges = [];
+		if (!self.__edge_dirty)
+			return (self.__edge_cache);
+		self.__edge_cache = [];
 		var _nodes = self.GetNodes();
 		for (var i = 0; i < array_length(_nodes); i++)
 		{
@@ -212,73 +314,104 @@ function Graph(flags, builder = undefined) constructor
 				var _to = _neighbors[j];
 				if (!self.IsDirected() && _from > _to)
 					continue ;
-				array_push(_edges, new Edge(_from, _to, self.__graph[$ _from][$ _to]));
+				array_push(self.__edge_cache, new Edge(_from, _to, self.__graph[$ _from][$ _to]));
 			}
 		}
-		return (_edges);
+		self.__edge_dirty = false;
+		return (self.__edge_cache);
 	}
 
+	/// @description Gets the total number of nodes in the graph
+	/// @return {Real} Returns node count
 	static GetNodeCount = function()
 	{
 		gml_pragma("forceinline");
 		return (self.__node_count);
 	}
 
+	/// @description Gets the total number of edges in the graph
+	/// @return {Real} Returns edge count
 	static GetEdgeCount = function()
 	{
 		gml_pragma("forceinline");
 		return (self.__edge_count);
 	}
 
+	/// @description Gets the number of neighbors for a given node
+	/// @param {Any} node The node to count neighbors for
+	/// @return {Real} Returns neighbor count
 	static GetNeighborsCount = function(node)
 	{
 		gml_pragma("forceinline");
 		return (array_length(self.GetNeighbors(node)));
 	}
 
+	/// @description Gets the out-degree (number of outgoing edges) of a node
+	/// @param {Any} node The node to check
+	/// @return {Real} Returns out-degree
 	static GetOutDegree = function(node)
 	{
 		if (!self.HasNode(node))
-			return (0);
+			self.__throw__($"Node {node} does not exist");
 		return (self.GetNeighborsCount(node));
 	}
 
+	/// @description Gets the in-degree (number of incoming edges) of a node
+	/// @param {Any} node The node to check
+	/// @return {Real} Returns in-degree
 	static GetInDegree = function(node)
 	{
 		if (!self.HasNode(node))
-			return (0);
-		var _nodes = self.GetNodes();
+			self.__throw__($"Node {node} does not exist");
+	
+		if (!self.IsDirected())
+			return (self.GetOutDegree(node));
+	
 		var _count = 0;
+		var _nodes = self.GetNodes();
 		for (var i = 0; i < array_length(_nodes); i++)
 		{
-			var _from = _nodes[i];
-			if (self.HasEdge(_from, node))
-				_count += 1;
+			if (self.HasEdge(_nodes[i], node))
+				_count++;
 		}
 		return (_count);
 	}
 
+	/// @description Gets the total degree of a node 
+	/// (in-degree + out-degree for directed, neighbor count for undirected)
+	/// @param {Any} node The node to check
+	/// @return {Real} Returns total degree
 	static GetDegree = function(node)
 	{
 		if (!self.HasNode(node))
-			return (0);
+			self.__throw__($"Node {node} does not exist");
 		if (!self.IsDirected())
 			return (self.GetNeighborsCount(node));
 		else
 			return (self.GetInDegree(node) + self.GetOutDegree(node));
 	}
 
+	/// @description Finds any path between two nodes using BFS
+	/// @param {Any} source The starting node
+	/// @param {Any} target The destination node
+	/// @return {Array<String>|Undefined} Returns array of nodes forming the path, or undefined if no path exists
 	static GetPath = function(source, target)
 	{
+		if (!self.HasNode(source) || !self.HasNode(target))
+			self.__throw__($"Invalid nodes for path {source} to {target}")
 		var _bfs_result = self.BFS(source, target);
 		if (!__isBFSPathValid(_bfs_result, source, target))
 			return (undefined);
 		return (__reconstructPath(_bfs_result.previous, source, target))
 	}
 
+	/// @description Gets all connected components in the graph
+	/// @return {Array<Array<String>>} Returns array of components, each component is an array of node identifiers
 	static GetComponents = function()
 	{
-		var _components = [];
+		if (!self.__structure_dirty)
+			return (self.__components_cache);
+		self.__components_cache = [];
 		var _visited_nodes = {};
 		var _nodes = self.GetNodes();
 		for (var i = 0; i < array_length(_nodes); i++)
@@ -289,29 +422,43 @@ function Graph(flags, builder = undefined) constructor
 			var _bfs_result = self.BFS(_node);
 			for (var j = 0; j < array_length(_bfs_result.visited); j++)
 				_visited_nodes[$ _bfs_result.visited[j]] = true;
-			array_push(_components, _bfs_result.visited);
+			array_push(self.__components_cache, _bfs_result.visited);
 		}
-		return (_components);
+		self.__structure_dirty = false;
+		return (self.__components_cache);
 	}
 
+	/// @description Gets the number of connected components in the graph
+	/// @return {Real} Returns component count
 	static GetComponentsCount = function()
 	{
 		gml_pragma("forceinline");
 		return (array_length(self.GetComponents()));
 	}
 
+	/// @description Finds the shortest path between two nodes
+	/// @param {Any} source The starting node
+	/// @param {Any} target The destination node
+	/// @return {Array<String>|Undefined} Returns array of nodes forming shortest path, or undefined if no path exists
 	static GetShortestPath = function(source, target)
 	{
 		gml_pragma("forceinline");
 		return (self.GetShortestPathData(source, target).path);
 	}
 
+	/// @description Gets the shortest distance between two nodes
+	/// @param {Any} source The starting node
+	/// @param {Any} target The destination node
+	/// @return {Real} Returns shortest distance, or infinity if no path exists
 	static GetShortestDistance = function(source, target)
 	{
 		gml_pragma("forceinline");
 		return (self.GetShortestPathData(source, target).distance);
 	}
 
+	/// @param {Any} source The starting node
+	/// @param {Any} target The destination node
+	/// @return {Struct} Returns {path: array of nodes or undefined, distance: real or infinity}
 	static GetShortestPathData = function(source, target)
 	{
 		gml_pragma("forceinline");
@@ -320,57 +467,94 @@ function Graph(flags, builder = undefined) constructor
 			self.GetShortestPathDataUnweighted(source, target))
 	}
 
+	/// @description Gets shortest path data for weighted graphs using Dijkstra's algorithm
+	/// @param {Any} source The starting node
+	/// @param {Any} target The destination node
+	/// @return {Struct} Returns {path: array of nodes or undefined, distance: real or infinity}
 	static GetShortestPathDataWeighted = function(source, target)
 	{
 		gml_pragma("forceinline");
+		if (!self.HasNode(source) || !self.HasNode(target))
+			self.__throw__($"Invalid nodes for path {source} to {target}")
 		var _result = self.Dijkstra(source, target);
 		if (!_result)
-			return ({path: undefined, distance: -1});
+			return ({path: undefined, distance: infinity});
 		return ({path: __reconstructPath(_result.previous, source, target),
-			distance: _result.distances[$ target] ?? -1});
+			distance: _result.distances[$ target] ?? infinity});
 	}
 
+	/// @description Gets shortest path data for unweighted graphs using BFS
+	/// @param {Any} source The starting node
+	/// @param {Any} target The destination node
+	/// @return {Struct} Returns {path: array of nodes or undefined, distance: real or infinity}
 	static GetShortestPathDataUnweighted = function(source, target)
 	{
 		gml_pragma("forceinline");
+		if (!self.HasNode(source) || !self.HasNode(target))
+			self.__throw__($"Invalid nodes for path {source} to {target}")
 		var _result = self.BFS(source, target);
 		if (!_result)
-			return ({path: undefined, distance: -1});
+			return ({path: undefined, distance: infinity});
 		var _path = __reconstructPath(_result.previous, source, target);
-		return ({path: _path, distance: is_array(_path) ? array_length(_path) - 1 : -1});
+		return ({path: _path, distance: is_array(_path) ? array_length(_path) - 1 : infinity});
 	}
 
 	#endregion
 
 	#region Graph Manipulation
 
+	/// @description Removes all nodes and edges from the graph (ignored if immutable)
+	/// @return {Struct.self} Returns self for method chaining
 	static Clear = function()
 	{
-		gml_pragma("forceinline");
 		if (!self.IsImmutable())
 		{
 			self.__graph = {};
 			self.__edge_count = 0;
 			self.__node_count = 0;
+			self.__node_dirty = true;
+			self.__edge_dirty = true;
+			self.__structure_dirty = true;
+			self.__node_cache = undefined;
+			self.__edge_cache = undefined;
 		}
 		return (self);
 	}
 
+	/// @description Copies all data from another graph into this graph
+	/// @param {Struct.self} graph The source graph to copy from
+	/// @param {Bool} unfreeze Whether to remove immutable flag after copying
+	/// @return {Struct.self} Returns self for method chaining
 	static Copy = function(graph, unfreeze = true)
 	{
-		if (self.IsImmutable() || !is_struct(graph) || !is_instanceof(graph, Graph)) 
+		if (self.IsImmutable())
 			return (self);
+		if (!is_struct(graph) || !is_instanceof(graph, Graph)) 
+			self.__throw__("Graph copy failed, not a graph.");
+		// Not optimal
 		var _keys = struct_get_names(graph);
 		for (var j = 0; j < array_length(_keys); j++)
 		{
 			var _k = _keys[j];
-			self[$ _k] = graph[$ _k];
+			var _value = graph[$ _k];
+			
+			if (is_struct(_value))
+				self[$ _k] = variable_clone(_value);
+			else
+				self[$ _k] = _value;
 		}
 		if (unfreeze)
 			self.__flags &= ~GraphFlags.GRAPH_IMMUTABLE;
+		self.__node_dirty = true;
+		self.__edge_dirty = true;
+		self.__graph_id = Graph.__graph_count++;
+
 		return (self);
 	}
 
+	/// @description Creates a deep copy of this graph
+	/// @param {Bool} unfreeze Whether to remove immutable flag from the clone
+	/// @return {Struct.self} Returns new Graph instance with same structure
 	static Clone = function(unfreeze = true)
 	{
 		var _flags = self.__flags;
@@ -393,37 +577,55 @@ function Graph(flags, builder = undefined) constructor
 		return (_result);
 	}
 
+	/// @description Makes the graph immutable (read-only), preventing all modifications
+	/// @return {Struct.self} Returns self for method chaining
 	static Freeze = function()
 	{
 		gml_pragma("forceinline");
-		/*Immutable Graph could be optimized in the future*/
+		/*Immutable Graph could be more optimized in the future*/
 		self.__flags |= GraphFlags.GRAPH_IMMUTABLE;
 		return (self);
 	}
 
+	/// @description Removes a node and all its connected edges from the graph
+	/// @param {Any} node The node to remove
+	/// @return {Struct.self} Returns self for method chaining
 	static RemoveNode = function(node)
 	{
 		if (self.IsImmutable() || !self.HasNode(node))
 			return (self);
-		var _nodes = self.GetNodes();
-		for (var i = 0; i < array_length(_nodes); i++)
-		{
-			var _other = _nodes[i];
-			if (_other == node)
-				continue;
-			self.RemoveEdgeArg(_other, node);
-		}
+
+		var _neighbors = variable_struct_get_names(self.__graph[$ node]);
+		var _out_count = array_length(_neighbors);
 		if (self.IsDirected())
 		{
-			var _neighbors = self.GetNeighbors(node);
-			for (var i = 0; i < array_length(_neighbors); i++)
-				self.RemoveEdgeArg(node, _neighbors[i]);
+			var _all_nodes = variable_struct_get_names(self.__graph);
+			for (var i = 0; i < array_length(_all_nodes); i++)
+			{
+				var _from = _all_nodes[i];
+				if (_from == node || self.__graph[$ _from][$ node] == undefined)
+					continue ;
+				variable_struct_remove(self.__graph[$ _from], node);
+				self.__edge_count--;
+			}
 		}
+		else
+		{
+			for (var i = 0; i < _out_count; i++)
+				variable_struct_remove(self.__graph[$ _neighbors[i]], node);
+		}
+		self.__edge_count -= _out_count;
 		variable_struct_remove(self.__graph, node);
 		self.__node_count--;
+		self.__structure_dirty = true;
+		self.__node_dirty = true;
+		self.__edge_dirty = true;
 		return (self);
 	}
 
+	/// @description Removes multiple nodes from the graph
+	/// @param {Array<String>|String...} nodes Array of nodes to remove, or multiple node arguments
+	/// @return {Struct.self} Returns self for method chaining
 	static RemoveNodes = function(nodes)
 	{
 		if (self.IsImmutable() || argument_count == 0)
@@ -440,6 +642,9 @@ function Graph(flags, builder = undefined) constructor
 		return (self);
 	}
 
+	/// @description Removes an edge from the graph. Accepts edge as two arguments, Edge struct, or [from, to] array
+	/// @param {Struct.Edge} edge An Edge definition, by array, by struct, or by 2 reals.
+	/// @return {Struct.self} Returns self for method chaining
 	static RemoveEdge = function()
 	{
 		gml_pragma("forceinline")
@@ -452,18 +657,37 @@ function Graph(flags, builder = undefined) constructor
 		return (self);
 	}
 
+	/// @description Internal function to remove edge without validation
+	/// @param {Any} from Source node
+	/// @param {Any} to Target node
+	/// @ignore
+	static __RemoveEdgeUnsafe = function(from, to)
+	{
+		gml_pragma("forceinline")
+		variable_struct_remove(self.__graph[$ from], to);
+		if (!self.IsDirected())
+			variable_struct_remove(self.__graph[$ to], from);
+		self.__edge_count--;
+		self.__edge_dirty = true;
+		self.__structure_dirty = true;
+	}
+
+	/// @description (Not Recommended) Removes an edge specified by from and to arguments
+	/// @param {Any} from Source node
+	/// @param {Any} to Target node
+	/// @return {Struct.self} Returns self for method chaining
 	static RemoveEdgeArg = function(from, to)
 	{
+		gml_pragma("forceinline")
 		if (self.IsImmutable() || !self.HasEdge(from, to))
 			return (self);
-		if (self.__graph[$ from])
-			variable_struct_remove(self.__graph[$ from], to);
-		if (!self.IsDirected() && self.__graph[$ to])
-			variable_struct_remove(self.__graph[$ to], from)
-		self.__edge_count--;
+		self.__RemoveEdgeUnsafe(from, to)
 		return (self);
 	}
 
+	/// @description (Not Recommended) Removes an edge specified by an Edge struct
+	/// @param {Struct.Edge} edge_struct The edge structure with from and to fields
+	/// @return {Struct.self} Returns self for method chaining
 	static RemoveEdgeStruct = function(_struct)
 	{
 		gml_pragma("forceinline");
@@ -471,6 +695,9 @@ function Graph(flags, builder = undefined) constructor
 		return (self);
 	}
 
+	/// @description (Not Recommended) Removes an edge specified by a [from, to] array
+	/// @param {Array<Any>} edge_array Array with [from, to] elements
+	/// @return {Struct.self} Returns self for method chaining
 	static RemoveEdgeArray = function(_array)
 	{
 		gml_pragma("forceinline");
@@ -478,6 +705,9 @@ function Graph(flags, builder = undefined) constructor
 		return (self);
 	}
 
+	/// @description Removes multiple edges from the graph
+	/// @param {Struct.Edge...} edges Muliple edges definition, by array, by struct, or by 2 reals.
+	/// @return {Struct.self} Returns self for method chaining
 	static RemoveEdges = function(edges)
 	{
 		if (self.IsImmutable() || argument_count == 0)
@@ -494,6 +724,9 @@ function Graph(flags, builder = undefined) constructor
 		return (self);
 	}
 
+	/// @description Adds a node to the graph if it doesn't already exist
+	/// @param {Any} node The node identifier to add
+	/// @return {Struct.self} Returns self for method chaining
 	static AddNode = function(node)
 	{
 		gml_pragma("forceinline");
@@ -503,10 +736,15 @@ function Graph(flags, builder = undefined) constructor
 		{
 			self.__graph[$ node] = {};
 			self.__node_count++;
+			self.__structure_dirty = true;
+			self.__node_dirty = true;
 		}
 		return (self);
 	}
 
+	/// @description Adds multiple nodes to the graph
+	/// @param {Array<Any>|Any} nodes Array of nodes to add, or multiple node arguments
+	/// @return {Struct.self} Returns self for method chaining
 	static AddNodes = function()
 	{
 		if (self.IsImmutable() || argument_count == 0)
@@ -523,6 +761,9 @@ function Graph(flags, builder = undefined) constructor
 		return (self);
 	}
 
+	/// @description Adds an edge to the graph. Accepts edge as two/three arguments, Edge struct, or array
+	/// @param {Struct.Edge} edge An Edge definition, by array, by struct, or by 2 reals.
+	/// @return {Struct.self} Returns self for method chaining
 	static AddEdge = function()
 	{
 		gml_pragma("forceinline")
@@ -535,14 +776,19 @@ function Graph(flags, builder = undefined) constructor
 		return (self);
 	}
 
+	/// @description (Not Recommended) Adds an edge specified by from and to arguments
+	/// @param {Any} from Source node
+	/// @param {Any} to Target node
+	/// @param {Real} weight Edge weight (weighted graphs only) (default: 1)
+	/// @return {Struct.self} Returns self for method chaining
 	static AddEdgeArg = function(from, to, weight = 1)
 	{
 		if (self.IsImmutable() || from == undefined || to == undefined || self.HasEdge(from, to))
 			return (self);
 		if (from == to && !(self.__flags & GraphFlags.GRAPH_ALLOW_SELF_LOOP))
-			return (self);
-		if (!self.IsWeighted())
-			weight = 1;
+			self.__throw__("Self referencing edge unallowed by flags");
+		if (!self.IsWeighted() && weight != 1)
+			self.__throw__("Cannot set weight on unweighted graph");
 
 		self.AddNode(from);
 		self.__graph[$ from][$ to] = weight;
@@ -550,10 +796,16 @@ function Graph(flags, builder = undefined) constructor
 		self.AddNode(to);
 		if (!self.IsDirected())
 			self.__graph[$ to][$ from] = weight;
+
 		self.__edge_count++;
+		self.__edge_dirty = true;
+		self.__structure_dirty = true;
 		return (self);
 	}
 
+	/// @description (Not Recommended) Adds an edge specified by a [from, to] or [from, to, weight] array
+	/// @param {Array<Any>} edge_array Array with [from, to] or [from, to, weight] elements
+	/// @return {Struct.self} Returns self for method chaining
 	static AddEdgeArray = function(_array)
 	{
 		gml_pragma("forceinline");
@@ -561,6 +813,9 @@ function Graph(flags, builder = undefined) constructor
 		return (self);
 	}
 
+	/// @description (Not Recommended) Adds an edge specified by an Edge struct or struct with from/to/weight fields
+	/// @param {Struct.Edge} edge_struct The edge structure with from, to, and optional weight fields
+	/// @return {Struct.self} Returns self for method chaining
 	static AddEdgeStruct = function(_struct)
 	{
 		gml_pragma("forceinline");
@@ -568,6 +823,9 @@ function Graph(flags, builder = undefined) constructor
 		return (self)
 	}
 
+	/// @description Adds multiple edges to the graph
+	/// @param {Struct.Edge...} edges Muliple edges definition, by array, by struct, or by 2 reals.
+	/// @return {Struct.self} Returns self for method chaining
 	static AddEdges = function(edges)
 	{
 		if (self.IsImmutable() || argument_count == 0)
@@ -586,6 +844,9 @@ function Graph(flags, builder = undefined) constructor
 
 	#endregion
 
+	/// @description Internal function to build graph from various input formats
+	/// @param {Any} builder Graph, struct with nodes/edges, array, or single node
+	/// @ignore
 	static __build__ = function(builder)
 	{
 		if (is_struct(builder))
@@ -613,8 +874,24 @@ function Graph(flags, builder = undefined) constructor
 		else
 			self.AddNode(builder);
 	}
+
+	/// @description Internal function to throw formatted error messages
+	/// @param {String} error The error message
+	/// @ignore
+	static __throw__ = function(error)
+	{
+		gml_pragma("forceinline");
+		var _msg = $"Error on Graph #{self.__graph_id}: {error}";
+		throw ({message: _msg, longMessage: _msg})
+	}
 }
 
+/// @description Internal Helper function to validate BFS path result
+/// @param {Struct} bfs_result The BFS result structure
+/// @param {Any} from Source node
+/// @param {Any} to Target node
+/// @return {Bool} Returns true if valid path was found
+/// @ignore
 function __isBFSPathValid(bfs_result, from, to)
 {
 	gml_pragma("forceinline");
@@ -623,6 +900,12 @@ function __isBFSPathValid(bfs_result, from, to)
 	return (array_length(bfs_result.visited) > 0 && bfs_result.visited[array_length(bfs_result.visited) - 1] == to);
 }
 
+/// @description Internal Helper function to reconstruct path from BFS/Dijkstra predecessor map
+/// @param {Struct} previous Map of nodes to their predecessors
+/// @param {Any} source Starting node
+/// @param {Any} target Destination node
+/// @return {Array<Any>|Undefined} Returns array of nodes forming path, or undefined if no path exists
+/// @ignore
 function __reconstructPath(previous, source, target)
 {
 	if (previous[$ target] == undefined && source != target)

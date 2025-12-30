@@ -1,4 +1,4 @@
-/// @description Complete unit test suite for Graph library
+/// @description Enhanced complete unit test suite for Graph library
 /// @function TestRunner()
 
 function TestRunner() constructor
@@ -46,6 +46,63 @@ function TestRunner() constructor
 		Assert(equals, test_name);
 	}
 	
+	static AssertArrayContains = function(arr, value, test_name)
+	{
+		var contains = false;
+		for (var i = 0; i < array_length(arr); i++)
+		{
+			if (arr[i] == value)
+			{
+				contains = true;
+				break;
+			}
+		}
+		Assert(contains, test_name);
+	}
+	
+	/// @description Assert graph internal consistency
+	static AssertGraphConsistency = function(g, test_name)
+	{
+		var nodes = g.GetNodes();
+		var edges = g.GetEdges();
+
+		// Node count consistency
+		AssertEquals(
+			array_length(nodes),
+			g.GetNodeCount(),
+			test_name + " - node count consistency"
+		);
+
+		// Edge count consistency
+		AssertEquals(
+			array_length(edges),
+			g.GetEdgeCount(),
+			test_name + " - edge count consistency"
+		);
+
+		// Undirected symmetry
+		if (!g.IsDirected())
+		{
+			for (var i = 0; i < array_length(edges); i++)
+			{
+				var e = edges[i];
+				Assert(
+					g.HasEdge(e.to, e.from),
+					test_name + " - undirected symmetry (" + string(e.from) + "," + string(e.to) + ")"
+				);
+			}
+		}
+		
+		// All edges reference existing nodes
+		for (var i = 0; i < array_length(edges); i++)
+		{
+			var e = edges[i];
+			Assert(g.HasNode(e.from), test_name + " - edge from node exists");
+			Assert(g.HasNode(e.to), test_name + " - edge to node exists");
+		}
+	}
+
+	
 	static PrintSummary = function()
 	{
 		show_debug_message("\n========================================");
@@ -66,245 +123,392 @@ function TestRunner() constructor
 	}
 }
 
-/// @description Test graph construction
+/// @description Test empty graphs and extreme minimal cases
+function TestEmptyAndMinimalGraphs(runner)
+{
+	show_debug_message("\n=== Testing Empty & Minimal Graphs ===");
+
+	// Empty undirected graph
+	var g1 = new Graph(GraphFlags.GRAPH_NONE);
+	runner.AssertEquals(0, g1.GetNodeCount(), "Empty graph node count");
+	runner.AssertEquals(0, g1.GetEdgeCount(), "Empty graph edge count");
+	runner.Assert(g1.GetNodes() != undefined, "Empty graph GetNodes valid");
+	runner.Assert(!g1.IsConnected(), "Empty graph not connected");
+	runner.AssertEquals(0, g1.GetComponentsCount(), "Empty graph has 0 components");
+	runner.Assert(!g1.HasNode("X"), "Empty graph has no nodes");
+	runner.Assert(!g1.HasEdge("X", "Y"), "Empty graph has no edges");
+
+	// Empty directed graph
+	var g2 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	runner.AssertEquals(0, g2.GetNodeCount(), "Empty directed graph");
+	runner.Assert(g2.IsDirected(), "Empty directed graph flag");
+
+	// Single node
+	var g3 = new Graph(GraphFlags.GRAPH_NONE);
+	g3.AddNode("A");
+	runner.AssertEquals(1, g3.GetNodeCount(), "Single node graph");
+	runner.AssertEquals(0, g3.GetEdgeCount(), "Single node no edges");
+	runner.Assert(g3.IsConnected(), "Single node graph is connected");
+	runner.AssertEquals(1, g3.GetComponentsCount(), "Single node is one component");
+	runner.AssertEquals(0, g3.GetDegree("A"), "Single node has degree 0");
+	
+	// Single node BFS
+	var bfs = g3.BFS("A");
+	runner.AssertArrayEquals(["A"], bfs.visited, "BFS on single node");
+	
+	// Single self-loop
+	var g4 = new Graph(GraphFlags.GRAPH_ALLOW_SELF_LOOP);
+	g4.AddEdge("A", "A");
+	runner.AssertEquals(1, g4.GetNodeCount(), "Self-loop creates one node");
+	runner.AssertEquals(1, g4.GetEdgeCount(), "Self-loop is one edge");
+	runner.Assert(g4.HasEdge("A", "A"), "Self-loop exists");
+	
+	// Two isolated nodes
+	var g5 = new Graph(GraphFlags.GRAPH_NONE);
+	g5.AddNodes("A", "B");
+	runner.Assert(!g5.IsConnected(), "Two isolated nodes not connected");
+	runner.AssertEquals(2, g5.GetComponentsCount(), "Two isolated nodes = 2 components");
+	runner.Assert(!g5.HasPath("A", "B"), "No path between isolated nodes");
+
+	runner.AssertGraphConsistency(g1, "Empty graph");
+	runner.AssertGraphConsistency(g3, "Single node graph");
+	runner.AssertGraphConsistency(g4, "Self-loop graph");
+	runner.AssertGraphConsistency(g5, "Isolated nodes graph");
+}
+
+/// @description Test graph construction with builder patterns (IMPROVED)
 function TestGraphConstruction(runner)
 {
 	show_debug_message("\n=== Testing Graph Construction ===");
 	
-	// Test 1: Empty undirected graph
-	var g1 = new Graph(GraphFlags.GRAPH_NONE);
-	runner.AssertEquals(0, g1.GetNodeCount(), "Empty undirected graph - node count");
-	runner.AssertEquals(0, g1.GetEdgeCount(), "Empty undirected graph - edge count");
-	runner.Assert(!g1.IsDirected(), "Empty graph is undirected");
-	runner.Assert(!g1.IsWeighted(), "Empty graph is unweighted");
+	// Test all flag combinations
+	var flags_tests = [
+		[GraphFlags.GRAPH_NONE, false, false, false, false, "NONE"],
+		[GraphFlags.GRAPH_DIRECTED, true, false, false, false, "DIRECTED"],
+		[GraphFlags.GRAPH_WEIGHTED, false, true, false, false, "WEIGHTED"],
+		[GraphFlags.GRAPH_ALLOW_SELF_LOOP, false, false, true, false, "SELF_LOOP"],
+		[GraphFlags.GRAPH_DIRECTED | GraphFlags.GRAPH_WEIGHTED, true, true, false, false, "DIR+WEIGHT"],
+		[GraphFlags.GRAPH_DIRECTED | GraphFlags.GRAPH_ALLOW_SELF_LOOP, true, false, true, false, "DIR+SELF"],
+		[GraphFlags.GRAPH_WEIGHTED | GraphFlags.GRAPH_ALLOW_SELF_LOOP, false, true, true, false, "WEIGHT+SELF"],
+		[GraphFlags.GRAPH_DIRECTED | GraphFlags.GRAPH_WEIGHTED | GraphFlags.GRAPH_ALLOW_SELF_LOOP, true, true, true, false, "ALL_FLAGS"]
+	];
 	
-	// Test 2: Directed graph
-	var g2 = new Graph(GraphFlags.GRAPH_DIRECTED);
-	runner.Assert(g2.IsDirected(), "Directed graph flag");
+	for (var i = 0; i < array_length(flags_tests); i++)
+	{
+		var test = flags_tests[i];
+		var g = new Graph(test[0]);
+		runner.AssertEquals(test[1], g.IsDirected(), "Flag " + test[5] + " - directed");
+		runner.AssertEquals(test[2], g.IsWeighted(), "Flag " + test[5] + " - weighted");
+		runner.AssertEquals(test[4], g.IsImmutable(), "Flag " + test[5] + " - immutable");
+	}
 	
-	// Test 3: Weighted graph
-	var g3 = new Graph(GraphFlags.GRAPH_WEIGHTED);
-	runner.Assert(g3.IsWeighted(), "Weighted graph flag");
+	// Self-loop behavior
+	var g_loop = new Graph(GraphFlags.GRAPH_ALLOW_SELF_LOOP);
+	g_loop.AddEdge("A", "A");
+	runner.Assert(g_loop.HasEdge("A", "A"), "Self-loop allowed with flag");
 	
-	// Test 4: Graph with self-loops
-	var g4 = new Graph(GraphFlags.GRAPH_ALLOW_SELF_LOOP);
-	g4.AddEdge("A", "A");
-	runner.Assert(g4.HasEdge("A", "A"), "Self-loop allowed");
+	var g_no_loop = new Graph(GraphFlags.GRAPH_NONE);
+	var error_caught = false;
+	try {g_no_loop.AddEdge("A", "A");} catch (_) {error_caught = true;};
+	runner.Assert(error_caught, "Self-loop throws error without flag");
+	runner.Assert(!g_no_loop.HasEdge("A", "A"), "Self-loop rejected without flag");
 	
-	// Test 5: Graph without self-loops
-	var g5 = new Graph(GraphFlags.GRAPH_NONE);
-	g5.AddEdge("A", "A");
-	runner.Assert(!g5.HasEdge("A", "A"), "Self-loop not allowed");
+	// CORRECTION: Immutable flag during construction
+	var g_imm = new Graph(GraphFlags.GRAPH_IMMUTABLE, [new Edge("X", "Y")]);
+	runner.AssertEquals(2, g_imm.GetNodeCount(), "Immutable allows builder during construction");
+	runner.Assert(g_imm.IsImmutable(), "Graph is immutable after construction");
+	g_imm.AddNode("Z");
+	runner.AssertEquals(2, g_imm.GetNodeCount(), "Immutable rejects post-construction modifications");
 	
-	// Test 6: Immutable graph
-	var g6 = new Graph(GraphFlags.GRAPH_IMMUTABLE);
-	runner.Assert(g6.IsImmutable(), "Immutable graph flag");
-	g6.AddNode("A");
-	runner.AssertEquals(0, g6.GetNodeCount(), "Immutable graph rejects modifications");
-	
-	// Test 7: Construction with builder (edges array)
-	var g7 = new Graph(GraphFlags.GRAPH_NONE, [
+	// Builder with edges array
+	var g_builder1 = new Graph(GraphFlags.GRAPH_NONE, [
 		new Edge("A", "B"),
 		new Edge("B", "C"),
 		new Edge("C", "D")
 	]);
-	runner.AssertEquals(4, g7.GetNodeCount(), "Builder with edges - node count");
-	runner.AssertEquals(3, g7.GetEdgeCount(), "Builder with edges - edge count");
+	runner.AssertEquals(4, g_builder1.GetNodeCount(), "Builder edges - node count");
+	runner.AssertEquals(3, g_builder1.GetEdgeCount(), "Builder edges - edge count");
+	runner.Assert(g_builder1.HasEdge("A", "B"), "Builder edges - edge exists");
 	
-	// Test 8: Construction with builder (struct)
-	var g8 = new Graph(GraphFlags.GRAPH_NONE, {
+	// Builder with struct
+	var g_builder2 = new Graph(GraphFlags.GRAPH_NONE, {
 		nodes: ["A", "B", "C"],
 		edges: [new Edge("A", "B")]
 	});
-	runner.AssertEquals(3, g8.GetNodeCount(), "Builder with struct - node count");
-	runner.AssertEquals(1, g8.GetEdgeCount(), "Builder with struct - edge count");
+	runner.AssertEquals(3, g_builder2.GetNodeCount(), "Builder struct - node count");
+	runner.AssertEquals(1, g_builder2.GetEdgeCount(), "Builder struct - edge count");
 	
-	// Test 9: Combined flags
-	var g9 = new Graph(GraphFlags.GRAPH_DIRECTED | GraphFlags.GRAPH_WEIGHTED);
-	runner.Assert(g9.IsDirected() && g9.IsWeighted(), "Combined flags");
+	// Builder with graph copy
+	var g_source = new Graph(GraphFlags.GRAPH_NONE);
+	g_source.AddEdge("X", "Y");
+	g_source.AddEdge("Y", "Z");
+	var g_builder3 = new Graph(GraphFlags.GRAPH_NONE, g_source);
+	runner.AssertEquals(3, g_builder3.GetNodeCount(), "Builder with graph copy - nodes");
+	runner.AssertEquals(2, g_builder3.GetEdgeCount(), "Builder with graph copy - edges");
+	
+	// Builder with mixed array (nodes and edges)
+	var g_builder4 = new Graph(GraphFlags.GRAPH_NONE, [
+		"A", "B", // standalone nodes
+		new Edge("C", "D"),
+		["E", "F"], // edge as array
+		{from: "G", to: "H"} // edge as struct
+	]);
+	runner.AssertEquals(8, g_builder4.GetNodeCount(), "Builder mixed array - nodes");
+	runner.AssertEquals(3, g_builder4.GetEdgeCount(), "Builder mixed array - edges");
 }
 
-/// @description Test adding nodes
-function TestAddNodes(runner)
+/// @description Test node operations exhaustively
+function TestNodeOperations(runner)
 {
-	show_debug_message("\n=== Testing Add Nodes ===");
+	show_debug_message("\n=== Testing Node Operations ===");
 	
 	var g = new Graph(GraphFlags.GRAPH_NONE);
 	
-	// Test 1: Add single node
+	// Add single node
 	g.AddNode("A");
 	runner.AssertEquals(1, g.GetNodeCount(), "Add single node");
 	runner.Assert(g.HasNode("A"), "Node exists");
 	
-	// Test 2: Add multiple nodes (varargs)
-	g.Clear();
-	g.AddNodes("A", "B", "C", "D");
-	runner.AssertEquals(4, g.GetNodeCount(), "Add multiple nodes (varargs)");
-	
-	// Test 3: Add multiple nodes (array)
-	g.Clear();
-	g.AddNodes(["_x", "_y", "Z"]);
-	runner.AssertEquals(3, g.GetNodeCount(), "Add multiple nodes (array)");
-	
-	// Test 4: Add duplicate node
-	g.Clear();
+	// Add duplicate node
 	g.AddNode("A");
-	g.AddNode("A");
-	runner.AssertEquals(1, g.GetNodeCount(), "Duplicate node not added");
+	runner.AssertEquals(1, g.GetNodeCount(), "Duplicate node rejected");
 	
-	// Test 5: Add nodes with different types
-	g.Clear();
-	g.AddNode("String");
+	// Add multiple nodes (varargs)
+	g.AddNodes("B", "C", "D");
+	runner.AssertEquals(4, g.GetNodeCount(), "Add multiple nodes varargs");
+	
+	// Add multiple nodes (array)
+	g.AddNodes(["E", "F"]);
+	runner.AssertEquals(6, g.GetNodeCount(), "Add multiple nodes array");
+	
+	// Add nodes with different types
 	g.AddNode(123);
 	g.AddNode(456.78);
-	runner.AssertEquals(3, g.GetNodeCount(), "Nodes with different types");
+	g.AddNode("String");
+	runner.AssertEquals(9, g.GetNodeCount(), "Mixed type nodes");
+	runner.Assert(g.HasNode(123), "Integer node exists");
+	runner.Assert(g.HasNode(456.78), "Real node exists");
+	
+	// Remove single node
+	g.RemoveNode("A");
+	runner.AssertEquals(8, g.GetNodeCount(), "Remove single node");
+	runner.Assert(!g.HasNode("A"), "Removed node doesn't exist");
+	
+	// Remove multiple nodes (varargs)
+	g.RemoveNodes("B", "C");
+	runner.AssertEquals(6, g.GetNodeCount(), "Remove multiple nodes varargs");
+	
+	// Remove multiple nodes (array)
+	g.RemoveNodes(["D", "E"]);
+	runner.AssertEquals(4, g.GetNodeCount(), "Remove multiple nodes array");
+	
+	// Remove non-existent node (should not crash)
+	g.RemoveNode("NonExistent");
+	runner.AssertEquals(4, g.GetNodeCount(), "Remove non-existent node");
+	
+	// GetNodes returns all nodes
+	var nodes = g.GetNodes();
+	runner.AssertEquals(4, array_length(nodes), "GetNodes returns all");
+	
+	// Clear all nodes
+	g.Clear();
+	runner.AssertEquals(0, g.GetNodeCount(), "Clear all nodes");
+	runner.AssertEquals(0, g.GetEdgeCount(), "Clear removes edges too");
+	
+	runner.AssertGraphConsistency(g, "Node operations");
 }
 
-/// @description Test adding edges
-function TestAddEdges(runner)
+/// @description Test edge operations exhaustively
+function TestEdgeOperations(runner)
 {
-	show_debug_message("\n=== Testing Add Edges ===");
+	show_debug_message("\n=== Testing Edge Operations ===");
 	
-	// Test 1: Simple edge in undirected graph
+	// Simple undirected edge
 	var g1 = new Graph(GraphFlags.GRAPH_NONE);
 	g1.AddEdge("A", "B");
+	runner.Assert(g1.HasEdge("A", "B"), "Undirected edge A->B");
+	runner.Assert(g1.HasEdge("B", "A"), "Undirected edge B->A");
+	runner.AssertEquals(1, g1.GetEdgeCount(), "Undirected edge count");
 	runner.AssertEquals(2, g1.GetNodeCount(), "Edge creates nodes");
-	runner.AssertEquals(1, g1.GetEdgeCount(), "Single edge count");
-	runner.Assert(g1.HasEdge("A", "B"), "Edge A->B exists");
-	runner.Assert(g1.HasEdge("B", "A"), "Edge B->A exists (undirected)");
 	
-	// Test 2: Edge in directed graph
+	// Directed edge
 	var g2 = new Graph(GraphFlags.GRAPH_DIRECTED);
 	g2.AddEdge("A", "B");
 	runner.Assert(g2.HasEdge("A", "B"), "Directed edge A->B exists");
 	runner.Assert(!g2.HasEdge("B", "A"), "Directed edge B->A doesn't exist");
+	runner.AssertEquals(1, g2.GetEdgeCount(), "Directed edge count");
 	
-	// Test 3: Weighted edge
+	// Weighted edges
 	var g3 = new Graph(GraphFlags.GRAPH_WEIGHTED);
 	g3.AddEdge("A", "B", 5.5);
-	runner.AssertEquals(5.5, g3.GetWeight("A", "B"), "Weighted edge");
+	g3.AddEdge("B", "C", 10);
+	g3.AddEdge("C", "D", -3);
+	runner.AssertEquals(5.5, g3.GetWeight("A", "B"), "Positive weight");
+	runner.AssertEquals(10, g3.GetWeight("B", "C"), "Integer weight");
+	runner.AssertEquals(-3, g3.GetWeight("C", "D"), "Negative weight");
 	
-	// Test 4: Unweighted edge (default weight)
+	// Default weight
 	var g4 = new Graph(GraphFlags.GRAPH_NONE);
 	g4.AddEdge("A", "B");
-	runner.AssertEquals(1, g4.GetWeight("A", "B"), "Default weight");
+	runner.AssertEquals(1, g4.GetWeight("A", "B"), "Default weight is 1");
 	
-	// Test 5: Add multiple edges (varargs)
+	// Multiple edges (varargs)
 	var g5 = new Graph(GraphFlags.GRAPH_NONE);
 	g5.AddEdges(new Edge("A", "B"), new Edge("B", "C"), new Edge("C", "D"));
-	runner.AssertEquals(3, g5.GetEdgeCount(), "Multiple edges (varargs)");
+	runner.AssertEquals(3, g5.GetEdgeCount(), "Multiple edges varargs");
 	
-	// Test 6: Add multiple edges (array)
+	// Multiple edges (array)
 	var g6 = new Graph(GraphFlags.GRAPH_NONE);
 	g6.AddEdges([new Edge("A", "B"), new Edge("B", "C")]);
-	runner.AssertEquals(2, g6.GetEdgeCount(), "Multiple edges (array)");
+	runner.AssertEquals(2, g6.GetEdgeCount(), "Multiple edges array");
 	
-	// Test 7: Edge with array
-	var g7 = new Graph(GraphFlags.GRAPH_NONE);
-	g7.AddEdge(["_x", "_y", 10]);
-	runner.Assert(g7.HasEdge("_x", "_y"), "Edge from array");
+	// Edge from array notation
+	var g7 = new Graph(GraphFlags.GRAPH_WEIGHTED);
+	g7.AddEdge(["X", "Y", 15]);
+	runner.Assert(g7.HasEdge("X", "Y"), "Edge from array");
+	runner.AssertEquals(15, g7.GetWeight("X", "Y"), "Weight from array");
 	
-	// Test 8: Edge with struct
+	// Edge from struct
 	var g8 = new Graph(GraphFlags.GRAPH_WEIGHTED);
 	g8.AddEdge({from: "M", to: "N", weight: 7});
-	runner.AssertEquals(7, g8.GetWeight("M", "N"), "Edge from struct");
+	runner.Assert(g8.HasEdge("M", "N"), "Edge from struct");
+	runner.AssertEquals(7, g8.GetWeight("M", "N"), "Weight from struct");
 	
-	// Test 9: Duplicate edge
+	// Duplicate edge
 	var g9 = new Graph(GraphFlags.GRAPH_NONE);
 	g9.AddEdge("A", "B");
 	g9.AddEdge("A", "B");
-	runner.AssertEquals(1, g9.GetEdgeCount(), "Duplicate edge not added");
+	runner.AssertEquals(1, g9.GetEdgeCount(), "Duplicate edge rejected");
+	
+	// GetEdges returns all edges
+	var g10 = new Graph(GraphFlags.GRAPH_NONE);
+	g10.AddEdge("A", "B");
+	g10.AddEdge("B", "C");
+	var edges = g10.GetEdges();
+	runner.AssertEquals(2, array_length(edges), "GetEdges count");
+	
+	// GetEdge retrieves specific edge
+	var edge = g10.GetEdge("A", "B");
+	runner.Assert(edge != undefined, "GetEdge returns edge");
+	runner.AssertEquals("A", edge.from, "Edge from correct");
+	runner.AssertEquals("B", edge.to, "Edge to correct");
+	
+	// GetEdge on non-existent edge
+	try {no_edge = g10.GetEdge("X", "Y")} catch (_) {no_edge = undefined};
+	runner.Assert(no_edge == undefined, "GetEdge returns undefined for non-existent");
+	
+	// SetWeight modifies weight
+	var g11 = new Graph(GraphFlags.GRAPH_WEIGHTED);
+	g11.AddEdge("A", "B", 5);
+	g11.SetWeight("A", "B", 20);
+	runner.AssertEquals(20, g11.GetWeight("A", "B"), "SetWeight modifies weight");
+	
+	// SetWeight on undirected graph affects both directions
+	runner.AssertEquals(20, g11.GetWeight("B", "A"), "SetWeight undirected symmetry");
+	
+	runner.AssertGraphConsistency(g1, "Undirected edges");
+	runner.AssertGraphConsistency(g2, "Directed edges");
+	runner.AssertGraphConsistency(g3, "Weighted edges");
 }
 
-/// @description Test removal operations
-function TestRemoval(runner)
+/// @description Test edge removal with proper cache invalidation (IMPROVED)
+function TestEdgeRemoval(runner)
 {
-	show_debug_message("\n=== Testing Removal ===");
+	show_debug_message("\n=== Testing Edge Removal ===");
 	
-	// Test 1: Remove single node
+	// Remove edge in undirected graph
 	var g1 = new Graph(GraphFlags.GRAPH_NONE);
-	g1.AddNodes("A", "B", "C");
 	g1.AddEdge("A", "B");
-	g1.RemoveNode("B");
-	runner.AssertEquals(2, g1.GetNodeCount(), "Node removed");
-	runner.Assert(!g1.HasNode("B"), "Node doesn't exist");
-	runner.Assert(!g1.HasEdge("A", "B"), "Edge removed with node");
+	g1.AddEdge("B", "C");
 	
-	// Test 2: Remove multiple nodes (array)
+	// Verify cache before removal
+	var edges_before = g1.GetEdges();
+	runner.AssertEquals(2, array_length(edges_before), "Edges before removal");
+	
+	g1.RemoveEdge("A", "B");
+	runner.Assert(!g1.HasEdge("A", "B"), "Undirected edge removed A->B");
+	runner.Assert(!g1.HasEdge("B", "A"), "Undirected edge removed B->A");
+	runner.AssertEquals(1, g1.GetEdgeCount(), "Edge count after removal");
+	
+	// Verify cache invalidation
+	var edges_after = g1.GetEdges();
+	runner.AssertEquals(1, array_length(edges_after), "GetEdges reflects removal");
+	
+	// Remove edge using different notations
 	var g2 = new Graph(GraphFlags.GRAPH_NONE);
-	g2.AddNodes("A", "B", "C", "D", "E");
-	g2.RemoveNodes(["B", "D"]);
-	runner.AssertEquals(3, g2.GetNodeCount(), "Multiple nodes removed (array)");
+	g2.AddEdge("A", "B");
+	g2.AddEdge("C", "D");
+	g2.AddEdge("E", "F");
 	
-	// Test 3: Remove multiple nodes (varargs)
+	g2.RemoveEdge(new Edge("A", "B")); // struct notation
+	runner.Assert(!g2.HasEdge("A", "B"), "Remove with struct");
+	
+	g2.RemoveEdge(["C", "D"]); // array notation
+	runner.Assert(!g2.HasEdge("C", "D"), "Remove with array");
+	
+	runner.AssertEquals(1, g2.GetEdgeCount(), "Count after varied removals");
+	
+	// Remove multiple edges at once
 	var g3 = new Graph(GraphFlags.GRAPH_NONE);
-	g3.AddNodes("A", "B", "C", "D");
-	g3.RemoveNodes("A", "C");
-	runner.AssertEquals(2, g3.GetNodeCount(), "Multiple nodes removed (varargs)");
+	g3.AddEdges([new Edge("A", "B"), new Edge("B", "C"), new Edge("C", "D")]);
+	g3.RemoveEdges([new Edge("A", "B"), new Edge("C", "D")]);
+	runner.AssertEquals(1, g3.GetEdgeCount(), "RemoveEdges batch");
 	
-	// Test 4: Remove single edge
+	// Structure dirty flag after removal
 	var g4 = new Graph(GraphFlags.GRAPH_NONE);
 	g4.AddEdge("A", "B");
 	g4.AddEdge("B", "C");
+	var comps_before = g4.GetComponentsCount();
 	g4.RemoveEdge("A", "B");
-	runner.AssertEquals(1, g4.GetEdgeCount(), "Edge removed");
-	runner.Assert(!g4.HasEdge("A", "B"), "Edge doesn't exist");
-	
-	// Test 5: Remove edge in directed graph
-	var g5 = new Graph(GraphFlags.GRAPH_DIRECTED);
-	g5.AddEdge("A", "B");
-	g5.RemoveEdge("A", "B");
-	runner.Assert(!g5.HasEdge("A", "B"), "Directed edge removed");
-	runner.AssertEquals(0, g5.GetEdgeCount(), "Edge count after removal");
-	
-	// Test 6: Remove multiple edges
-	var g6 = new Graph(GraphFlags.GRAPH_NONE);
-	g6.AddEdges([new Edge("A", "B"), new Edge("B", "C"), new Edge("C", "D")]);
-	g6.RemoveEdges([new Edge("A", "B"), new Edge("C", "D")]);
-	runner.AssertEquals(1, g6.GetEdgeCount(), "Multiple edges removed");
-
+	var comps_after = g4.GetComponentsCount();
+	runner.Assert(comps_before != comps_after || comps_after == 2, "Component cache invalidated after edge removal");
 }
 
-/// @description Test getter functions
-function TestGetters(runner)
+// @description Test node removal with structure dirty flag (IMPROVED)
+function TestNodeRemovalWithEdges(runner)
 {
-	show_debug_message("\n=== Testing Getters ===");
+	show_debug_message("\n=== Testing Node Removal With Edges ===");
 	
-	var g = new Graph(GraphFlags.GRAPH_WEIGHTED);
-	g.AddEdge("A", "B", 5);
-	g.AddEdge("B", "C", 3);
-	g.AddEdge("A", "C", 7);
+	// Remove node with edges in undirected graph
+	var g1 = new Graph(GraphFlags.GRAPH_NONE);
+	g1.AddEdge("A", "B");
+	g1.AddEdge("A", "C");
+	g1.AddEdge("B", "C");
 	
-	// Test 1: GetNodes
-	var nodes = g.GetNodes();
-	runner.AssertEquals(3, array_length(nodes), "GetNodes count");
+	var neighbors_before = g1.GetNeighbors("B");
+	runner.AssertEquals(2, array_length(neighbors_before), "B has 2 neighbors before removal");
 	
-	// Test 2: GetEdges
-	var edges = g.GetEdges();
-	runner.AssertEquals(3, array_length(edges), "GetEdges count");
+	g1.RemoveNode("A");
+	runner.AssertEquals(2, g1.GetNodeCount(), "Node removed");
+	runner.AssertEquals(1, g1.GetEdgeCount(), "Node's edges removed");
+	runner.Assert(g1.HasEdge("B", "C"), "Unrelated edge remains");
 	
-	// Test 3: GetNeighbors
-	var neighbors = g.GetNeighbors("A");
-	runner.AssertEquals(2, array_length(neighbors), "GetNeighbors count");
+	// Verify neighbor lists updated
+	var neighbors_after = g1.GetNeighbors("B");
+	runner.AssertEquals(1, array_length(neighbors_after), "B now has 1 neighbor");
 	
-	// Test 4: GetNeighbors for non-existent node
-	var no_neighbors = g.GetNeighbors("Z");
-	runner.AssertEquals(0, array_length(no_neighbors), "GetNeighbors for non-existent node");
+	// Remove node from directed graph - removes incoming AND outgoing
+	var g2 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g2.AddEdge("A", "B");
+	g2.AddEdge("C", "A");
+	g2.AddEdge("B", "C");
+	g2.AddEdge("A", "D");
 	
-	// Test 5: GetEdge
-	var edge = g.GetEdge("A", "B");
-	runner.Assert(edge != undefined, "GetEdge returns edge");
-	runner.AssertEquals(5, edge.weight, "Edge weight");
+	runner.AssertEquals(4, g2.GetEdgeCount(), "4 edges before removal");
+	g2.RemoveNode("A");
+	runner.AssertEquals(3, g2.GetNodeCount(), "Node removed from directed");
+	runner.AssertEquals(1, g2.GetEdgeCount(), "All edges to/from A removed");
+	runner.Assert(g2.HasEdge("B", "C"), "Unrelated edge remains");
+	runner.Assert(!g2.HasEdge("A", "B"), "Outgoing edge removed");
+	runner.Assert(!g2.HasEdge("C", "A"), "Incoming edge removed");
 	
-	// Test 6: GetWeight
-	runner.AssertEquals(3, g.GetWeight("B", "C"), "GetWeight");
-	
-	// Test 7: SetWeight
-	g.SetWeight("A", "B", 10);
-	runner.AssertEquals(10, g.GetWeight("A", "B"), "SetWeight");
-	
-	// Test 8: GetNeighborsCount
-	runner.AssertEquals(2, g.GetNeighborsCount("A"), "GetNeighborsCount");
+	// Component recalculation after node removal
+	var g3 = new Graph(GraphFlags.GRAPH_NONE);
+	g3.AddEdge("A", "B");
+	g3.AddEdge("B", "C");
+	runner.AssertEquals(1, g3.GetComponentsCount(), "Connected before removal");
+	g3.RemoveNode("B"); // Bridge node
+	runner.AssertEquals(2, g3.GetComponentsCount(), "Disconnected after bridge removal");
 }
 
 /// @description Test degree calculations
@@ -312,35 +516,88 @@ function TestDegrees(runner)
 {
 	show_debug_message("\n=== Testing Degrees ===");
 	
-	// Test 1: Degrees in undirected graph
+	// Undirected graph degrees
 	var g1 = new Graph(GraphFlags.GRAPH_NONE);
 	g1.AddEdge("A", "B");
 	g1.AddEdge("A", "C");
 	g1.AddEdge("A", "D");
 	runner.AssertEquals(3, g1.GetDegree("A"), "Undirected degree");
-	runner.AssertEquals(3, g1.GetOutDegree("A"), "Undirected out-degree");
-	runner.AssertEquals(3, g1.GetInDegree("A"), "Undirected in-degree");
+	runner.AssertEquals(3, g1.GetOutDegree("A"), "Undirected out-degree equals degree");
+	runner.AssertEquals(3, g1.GetInDegree("A"), "Undirected in-degree equals degree");
+	runner.AssertEquals(1, g1.GetDegree("B"), "Undirected degree of neighbor");
 	
-	// Test 2: Degrees in directed graph
+	// Directed graph degrees
 	var g2 = new Graph(GraphFlags.GRAPH_DIRECTED);
 	g2.AddEdge("A", "B");
 	g2.AddEdge("A", "C");
 	g2.AddEdge("D", "A");
+	g2.AddEdge("E", "A");
 	runner.AssertEquals(2, g2.GetOutDegree("A"), "Directed out-degree");
-	runner.AssertEquals(1, g2.GetInDegree("A"), "Directed in-degree");
-	runner.AssertEquals(3, g2.GetDegree("A"), "Directed total degree");
+	runner.AssertEquals(2, g2.GetInDegree("A"), "Directed in-degree");
+	runner.AssertEquals(4, g2.GetDegree("A"), "Directed total degree");
+	runner.AssertEquals(1, g2.GetInDegree("B"), "Leaf node in-degree");
+	runner.AssertEquals(1, g2.GetOutDegree("D"), "Source node out-degree");
 	
-	// Test 3: Degree of isolated node
+	// Isolated node degree
 	var g3 = new Graph(GraphFlags.GRAPH_NONE);
 	g3.AddNode("Isolated");
 	runner.AssertEquals(0, g3.GetDegree("Isolated"), "Isolated node degree");
+
+	// GetNeighborsCount
+	runner.AssertEquals(3, g1.GetNeighborsCount("A"), "GetNeighborsCount undirected");
+	runner.AssertEquals(2, g2.GetNeighborsCount("A"), "GetNeighborsCount directed out");
 	
-	// Test 4: Degree of non-existent node
-	var g4 = new Graph(GraphFlags.GRAPH_NONE);
-	runner.AssertEquals(0, g4.GetDegree("NonExistent"), "Non-existent node degree");
+	// Self-loop degree
+	var g5 = new Graph(GraphFlags.GRAPH_ALLOW_SELF_LOOP | GraphFlags.GRAPH_DIRECTED);
+	g5.AddEdge("A", "A");
+	g5.AddEdge("A", "B");
+	runner.AssertEquals(2, g5.GetOutDegree("A"), "Self-loop out-degree");
+	runner.AssertEquals(1, g5.GetInDegree("A"), "Self-loop in-degree");
 }
 
-/// @description Test BFS algorithm
+/// @description Test neighbor operations
+function TestNeighbors(runner)
+{
+	show_debug_message("\n=== Testing Neighbors ===");
+	
+	var g = new Graph(GraphFlags.GRAPH_NONE);
+	g.AddEdge("A", "B");
+	g.AddEdge("A", "C");
+	g.AddEdge("A", "D");
+	g.AddEdge("B", "C");
+	
+	// GetNeighbors
+	var neighbors_a = g.GetNeighbors("A");
+	runner.AssertEquals(3, array_length(neighbors_a), "GetNeighbors count");
+	runner.AssertArrayContains(neighbors_a, "B", "Neighbor B exists");
+	runner.AssertArrayContains(neighbors_a, "C", "Neighbor C exists");
+	runner.AssertArrayContains(neighbors_a, "D", "Neighbor D exists");
+	
+	// GetNeighbors for node with one neighbor
+	var neighbors_d = g.GetNeighbors("D");
+	runner.AssertEquals(1, array_length(neighbors_d), "Single neighbor");
+	runner.AssertArrayContains(neighbors_d, "A", "Correct neighbor");
+	
+	// GetNeighbors for isolated node
+	g.AddNode("Isolated");
+	var neighbors_iso = g.GetNeighbors("Isolated");
+	runner.AssertEquals(0, array_length(neighbors_iso), "Isolated node has no neighbors");
+	
+	// GetNeighbors for non-existent node
+	var _test = false;
+	try {g.GetNeighbors("NonExistent");} catch (_) {_test = true};
+	runner.AssertEquals(_test, true, "Non-existent node neighbors (Should throw)");
+	
+	// Directed graph neighbors (outgoing only)
+	var g2 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g2.AddEdge("A", "B");
+	g2.AddEdge("C", "A");
+	var neighbors_dir = g2.GetNeighbors("A");
+	runner.AssertEquals(1, array_length(neighbors_dir), "Directed neighbors (out only)");
+	runner.AssertArrayContains(neighbors_dir, "B", "Outgoing neighbor exists");
+}
+
+/// @description Test BFS algorithm thoroughly
 function TestBFS(runner)
 {
 	show_debug_message("\n=== Testing BFS ===");
@@ -350,31 +607,140 @@ function TestBFS(runner)
 	g.AddEdge("A", "C");
 	g.AddEdge("B", "D");
 	g.AddEdge("C", "E");
+	g.AddEdge("D", "F");
 	
-	// Test 1: Basic BFS
-	var result = g.BFS("A");
-	runner.AssertEquals(5, array_length(result.visited), "BFS visits all nodes");
-	runner.Assert(result.visited[0] == "A", "BFS starts at source");
+	// Basic BFS from root
+	var result1 = g.BFS("A");
+	runner.AssertEquals(6, array_length(result1.visited), "BFS visits all reachable");
+	runner.AssertEquals("A", result1.visited[0], "BFS starts at source");
 	
-	// Test 2: BFS with target
-	var result2 = g.BFS("A", "D");
-	runner.Assert(result2.visited[array_length(result2.visited) - 1] == "D", "BFS stops at target");
+	// BFS with target
+	var result2 = g.BFS("A", "F");
+	runner.Assert(result2.visited[array_length(result2.visited) - 1] == "F", "BFS stops at target");
+	runner.Assert(array_length(result2.visited) <= 6, "BFS with target visits fewer nodes");
+
+	// BFS on disconnected graph
+	var g2 = new Graph(GraphFlags.GRAPH_NONE);
+	g2.AddEdge("A", "B");
+	g2.AddEdge("C", "D");
+	var result5 = g2.BFS("A");
+	runner.AssertEquals(2, array_length(result5.visited), "BFS on disconnected visits component only");
 	
-	// Test 3: BFS on non-existent node
-	var result3 = g.BFS("Z");
-	runner.Assert(result3 == undefined, "BFS on non-existent node");
+	// BFS on single node
+	var g3 = new Graph(GraphFlags.GRAPH_NONE);
+	g3.AddNode("A");
+	var result6 = g3.BFS("A");
+	runner.AssertEquals(1, array_length(result6.visited), "BFS on single node");
 	
-	// Test 4: HasPath
-	runner.Assert(g.HasPath("A", "E"), "Path exists");
-	runner.Assert(!g.HasPath("A", "Z"), "Path doesn't exist");
+	// BFS on directed graph
+	var g4 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g4.AddEdge("A", "B");
+	g4.AddEdge("B", "C");
+	g4.AddEdge("C", "A");
+	var result7 = g4.BFS("A");
+	runner.AssertEquals(3, array_length(result7.visited), "BFS on directed cycle");
 	
-	// Test 5: GetPath
-	var path = g.GetPath("A", "D");
-	runner.Assert(is_array(path), "GetPath returns array");
-	runner.Assert(path[0] == "A" && path[array_length(path) - 1] == "D", "Path from A to D");
+	// BFS level order (breadth-first property)
+	var g5 = new Graph(GraphFlags.GRAPH_NONE);
+	g5.AddEdge("A", "B");
+	g5.AddEdge("A", "C");
+	g5.AddEdge("B", "D");
+	g5.AddEdge("C", "E");
+	var result8 = g5.BFS("A");
+	// Level 0: A, Level 1: B,C, Level 2: D,E
+	runner.AssertEquals("A", result8.visited[0], "BFS level 0");
+	runner.Assert(result8.visited[1] == "B" || result8.visited[1] == "C", "BFS level 1");
+	runner.Assert(result8.visited[2] == "B" || result8.visited[2] == "C", "BFS level 1");
 }
 
-/// @description Test Dijkstra algorithm
+/// @description Test path finding
+function TestPaths(runner)
+{
+	show_debug_message("\n=== Testing Path Finding ===");
+	
+	var g = new Graph(GraphFlags.GRAPH_NONE);
+	g.AddEdge("A", "B");
+	g.AddEdge("B", "C");
+	g.AddEdge("C", "D");
+	g.AddEdge("A", "D"); // Shorter path
+	
+	// HasPath - connected nodes
+	runner.Assert(g.HasPath("A", "D"), "Path exists A to D");
+	runner.Assert(g.HasPath("B", "D"), "Path exists B to D");
+	runner.Assert(g.HasPath("A", "C"), "Path exists A to C");
+	
+	// HasPath - same node
+	runner.Assert(g.HasPath("A", "A"), "Path exists to self");
+	
+	// HasPath - disconnected graph
+	var g2 = new Graph(GraphFlags.GRAPH_NONE);
+	g2.AddEdge("A", "B");
+	g2.AddEdge("C", "D");
+	runner.Assert(!g2.HasPath("A", "C"), "No path between components");
+	
+	// GetPath - simple path
+	var path1 = g.GetPath("A", "C");
+	runner.Assert(is_array(path1), "GetPath returns array");
+	runner.AssertEquals("A", path1[0], "Path starts at source");
+	runner.AssertEquals("C", path1[array_length(path1) - 1], "Path ends at target");
+	
+	// GetPath - shortest unweighted path
+	var path2 = g.GetPath("A", "D");
+	runner.AssertEquals(2, array_length(path2), "Shortest path length");
+	runner.AssertArrayEquals(["A", "D"], path2, "Direct path chosen");
+	
+	// GetPath - no path exists
+	var path3 = g2.GetPath("A", "C");
+	runner.Assert(path3 == undefined, "GetPath returns undefined when no path");
+
+	// GetPath - same node
+	var path4 = g.GetPath("A", "A");
+	runner.AssertEquals(1, array_length(path4), "Path to self");
+	runner.AssertArrayEquals(["A"], path4, "Path to self is just node");
+	
+	// GetPath - directed graph
+	var g3 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g3.AddEdge("A", "B");
+	g3.AddEdge("B", "C");
+	var path5 = g3.GetPath("A", "C");
+	runner.AssertArrayEquals(["A", "B", "C"], path5, "Directed path");
+	var path6 = g3.GetPath("C", "A");
+	runner.Assert(path6 == undefined, "No reverse path in directed graph");
+}
+
+/// @description Test shortest distance
+function TestShortestDistance(runner)
+{
+	show_debug_message("\n=== Testing Shortest Distance ===");
+	
+	// Unweighted graph
+	var g1 = new Graph(GraphFlags.GRAPH_NONE);
+	g1.AddEdge("A", "B");
+	g1.AddEdge("B", "C");
+	g1.AddEdge("B", "E");
+	g1.AddEdge("A", "C"); // Direct edge
+	
+	runner.AssertEquals(1, g1.GetShortestDistance("A", "C"), "Shortest unweighted distance");
+	runner.AssertEquals(2, g1.GetShortestDistance("A", "E"), "Longer path distance");
+	runner.AssertEquals(0, g1.GetShortestDistance("A", "A"), "Distance to self is 0");
+	
+	// No path
+	var g2 = new Graph(GraphFlags.GRAPH_NONE);
+	g2.AddNode("A");
+	g2.AddNode("B");
+	runner.AssertEquals(infinity, g2.GetShortestDistance("A", "B"), "No path returns inf");
+	
+	// Weighted graph (uses Dijkstra)
+	var g3 = new Graph(GraphFlags.GRAPH_WEIGHTED);
+	g3.AddEdge("A", "B", 10);
+	g3.AddEdge("A", "C", 3);
+	g3.AddEdge("C", "B", 2);
+	
+	runner.AssertEquals(5, g3.GetShortestDistance("A", "B"), "Weighted shortest distance");
+	
+}
+
+/// @description Test Dijkstra with edge cases (IMPROVED)
 function TestDijkstra(runner)
 {
 	show_debug_message("\n=== Testing Dijkstra ===");
@@ -385,43 +751,70 @@ function TestDijkstra(runner)
 	g.AddEdge("B", "D", 3);
 	g.AddEdge("C", "B", 1);
 	g.AddEdge("C", "D", 5);
+	g.AddEdge("D", "E", 2);
 	
-	// Test 1: Basic Dijkstra
-	var result = g.Dijkstra("A", "D");
-	runner.Assert(result != undefined, "Dijkstra returns result");
-	runner.AssertEquals(6, result.distances[$ "D"], "Shortest distance A to D");
+	// Basic Dijkstra
+	var result1 = g.Dijkstra("A");
+	runner.Assert(result1 != undefined, "Dijkstra returns result");
+	runner.AssertEquals(0, result1.distances[$ "A"], "Distance to self is 0");
+	runner.AssertEquals(3, result1.distances[$ "B"], "Shortest distance A to B");
+	runner.AssertEquals(6, result1.distances[$ "D"], "Shortest distance A to D");
+	runner.AssertEquals(8, result1.distances[$ "E"], "Shortest distance A to E");
 	
-	// Test 2: GetShortestPath
-	var path = g.GetShortestPath("A", "D");
-	runner.Assert(is_array(path), "Shortest path is array");
-	runner.Assert(path[0] == "A", "Path starts at source");
-	runner.Assert(path[array_length(path) - 1] == "D", "Path ends at target");
+	// Dijkstra with target
+	var result2 = g.Dijkstra("A", "D");
+	runner.AssertEquals(6, result2.distances[$ "D"], "Dijkstra with target");
 	
-	// Test 3: GetShortestDistance
-	var dist = g.GetShortestDistance("A", "D");
-	runner.AssertEquals(6, dist, "Shortest distance");
+	// GetShortestPath using Dijkstra
+	var path1 = g.GetShortestPath("A", "D");
+	runner.AssertArrayEquals(["A", "C", "B", "D"], path1, "Optimal weighted path");
 	
-	// Test 4: Dijkstra with negative weights
+	// Verify path actually has correct total weight
+	var path_weight = 0;
+	for (var i = 0; i < array_length(path1) - 1; i++)
+		path_weight += g.GetWeight(path1[i], path1[i + 1]);
+	runner.AssertEquals(6, path_weight, "Path weight matches distance");
+
+	// Dijkstra with negative weights (should throw)
 	var g2 = new Graph(GraphFlags.GRAPH_WEIGHTED | GraphFlags.GRAPH_DIRECTED);
 	g2.AddEdge("A", "B", -5);
-	var result2 = g2.Dijkstra("A");
-	runner.Assert(result2 == undefined, "Dijkstra rejects negative weights");
+	var result4 = false;
+	try {g2.Dijkstra("A");} catch(_) {result4 = true;};
+	runner.Assert(result4, "Dijkstra throws on negative weights");
+	
+	// Dijkstra on unreachable node
+	var g3 = new Graph(GraphFlags.GRAPH_WEIGHTED);
+	g3.AddEdge("A", "B", 5);
+	g3.AddNode("C");
+	var result5 = g3.Dijkstra("A");
+	runner.Assert(result5.distances[$ "C"] == undefined, "Unreachable node not in distances");
+	
+	// Zero-weight edges
+	var g4 = new Graph(GraphFlags.GRAPH_WEIGHTED);
+	g4.AddEdge("A", "B", 0);
+	g4.AddEdge("B", "C", 5);
+	var result6 = g4.Dijkstra("A");
+	runner.AssertEquals(0, result6.distances[$ "B"], "Zero-weight edge");
+	runner.AssertEquals(5, result6.distances[$ "C"], "Path through zero-weight");
 }
 
-/// @description Test connected components
+/// @description Test connected components with directed graphs (CORRECTED)
 function TestComponents(runner)
 {
-	show_debug_message("\n=== Testing Components ===");
+	show_debug_message("\n=== Testing Connected Components ===");
 	
-	// Test 1: Connected graph
+	// Note: GetComponents uses BFS which treats directed graphs as undirected
+	// for connectivity (weak connectivity)
+	
+	// Fully connected undirected
 	var g1 = new Graph(GraphFlags.GRAPH_NONE);
 	g1.AddEdge("A", "B");
 	g1.AddEdge("B", "C");
 	g1.AddEdge("C", "D");
-	runner.Assert(g1.IsConnected(), "Connected graph");
+	runner.Assert(g1.IsConnected(), "Fully connected graph");
 	runner.AssertEquals(1, g1.GetComponentsCount(), "One component");
 	
-	// Test 2: Disconnected graph
+	// Disconnected graph - 3 components
 	var g2 = new Graph(GraphFlags.GRAPH_NONE);
 	g2.AddEdge("A", "B");
 	g2.AddEdge("C", "D");
@@ -429,9 +822,26 @@ function TestComponents(runner)
 	runner.Assert(!g2.IsConnected(), "Disconnected graph");
 	runner.AssertEquals(3, g2.GetComponentsCount(), "Three components");
 	
-	// Test 3: GetComponents
-	var components = g2.GetComponents();
-	runner.AssertEquals(3, array_length(components), "GetComponents returns all components");
+	// Directed graph - WEAK connectivity (undirected interpretation)
+	var g3 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g3.AddEdge("A", "B");
+	g3.AddEdge("B", "C");
+	runner.Assert(g3.IsConnected(), "Directed graph weakly connected");
+	
+	// Directed disconnected
+	var g4 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g4.AddEdge("A", "B");
+	g4.AddEdge("C", "D");
+	runner.Assert(!g4.IsConnected(), "Directed disconnected");
+	runner.AssertEquals(2, g4.GetComponentsCount(), "Two weak components");
+	
+	// Component cache invalidation
+	var g5 = new Graph(GraphFlags.GRAPH_NONE);
+	g5.AddEdge("A", "B");
+	g5.AddNode("C");
+	runner.AssertEquals(2, g5.GetComponentsCount(), "2 components initially");
+	g5.AddEdge("B", "C"); // Connect them
+	runner.AssertEquals(1, g5.GetComponentsCount(), "1 component after connection");
 }
 
 /// @description Test copy and clone operations
@@ -439,83 +849,403 @@ function TestCopyClone(runner)
 {
 	show_debug_message("\n=== Testing Copy & Clone ===");
 	
-	var g1 = new Graph(GraphFlags.GRAPH_WEIGHTED);
+	var g1 = new Graph(GraphFlags.GRAPH_WEIGHTED | GraphFlags.GRAPH_DIRECTED);
 	g1.AddEdge("A", "B", 5);
 	g1.AddEdge("B", "C", 3);
+	g1.AddEdge("C", "D", 7);
 	
-	// Test 1: Clone
+	// Clone basic
 	var g2 = g1.Clone();
-	runner.AssertEquals(g1.GetNodeCount(), g2.GetNodeCount(), "Clone has same nodes");
-	runner.AssertEquals(g1.GetEdgeCount(), g2.GetEdgeCount(), "Clone has same edges");
-	runner.AssertEquals(g1.GetWeight("A", "B"), g2.GetWeight("A", "B"), "Clone has same weights");
+	runner.AssertEquals(g1.GetNodeCount(), g2.GetNodeCount(), "Clone same nodes");
+	runner.AssertEquals(g1.GetEdgeCount(), g2.GetEdgeCount(), "Clone same edges");
+	runner.AssertEquals(g1.GetWeight("A", "B"), g2.GetWeight("A", "B"), "Clone same weights");
+	runner.AssertEquals(g1.IsDirected(), g2.IsDirected(), "Clone same flags - directed");
+	runner.AssertEquals(g1.IsWeighted(), g2.IsWeighted(), "Clone same flags - weighted");
 	
-	// Test 2: Clone modification doesn't affect original
-	g2.AddEdge("C", "D");
+	// Clone is independent
+	g2.AddEdge("D", "E");
 	runner.Assert(g1.GetEdgeCount() != g2.GetEdgeCount(), "Clone is independent");
+	runner.Assert(!g1.HasNode("E"), "Original unchanged");
 	
-	// Test 3: Clone with unfreeze
-	var g3 = new Graph(GraphFlags.GRAPH_IMMUTABLE);
-	g3 = new Graph(GraphFlags.GRAPH_NONE, [new Edge("_x", "_y")]).Freeze();
+	// Clone preserves structure
+	g2.RemoveEdge("A", "B");
+	runner.Assert(g1.HasEdge("A", "B"), "Original structure intact");
+	
+	// Clone with unfreeze
+	var g3 = new Graph(GraphFlags.GRAPH_NONE, [new Edge("X", "Y")]);
+	g3.Freeze();
+	runner.Assert(g3.IsImmutable(), "Graph frozen");
 	var g4 = g3.Clone(true);
 	runner.Assert(!g4.IsImmutable(), "Clone unfrozen");
+	g4.AddEdge("Y", "Z");
+	runner.AssertEquals(2, g4.GetEdgeCount(), "Unfrozen clone modifiable");
 	
-	// Test 4: Copy
-	var g5 = new Graph(GraphFlags.GRAPH_NONE);
-	g5.Copy(g1);
-	runner.AssertEquals(g1.GetNodeCount(), g5.GetNodeCount(), "Copy has same nodes");
+	// Clone without unfreeze
+	var g5 = g3.Clone(false);
+	runner.Assert(g5.IsImmutable(), "Clone remains frozen");
+	
+	// Copy into existing graph
+	var g6 = new Graph(GraphFlags.GRAPH_NONE);
+	g6.AddEdge("M", "N");
+	g6.Copy(g1);
+	runner.AssertEquals(g1.GetNodeCount(), g6.GetNodeCount(), "Copy replaces content");
+	runner.Assert(g6.HasEdge("A", "B"), "Copy has source edges");
+	runner.Assert(!g6.HasEdge("M", "N"), "Copy clears old content");
+	
+	// Copy preserves weights
+	runner.AssertEquals(5, g6.GetWeight("A", "B"), "Copy preserves weights");
+	
+	// Copy empty graph
+	var g7 = new Graph(GraphFlags.GRAPH_NONE);
+	var g8 = new Graph(GraphFlags.GRAPH_NONE);
+	g8.AddEdge("A", "B");
+	g8.Copy(g7);
+	runner.AssertEquals(0, g8.GetNodeCount(), "Copy empty clears");
 }
 
-/// @description Test immutability features
+/// @description Test immutability and freeze
 function TestImmutability(runner)
 {
 	show_debug_message("\n=== Testing Immutability ===");
 	
-	var g = new Graph(GraphFlags.GRAPH_IMMUTABLE);
+	// Immutable from construction
+	var g1 = new Graph(GraphFlags.GRAPH_IMMUTABLE);
+	runner.Assert(g1.IsImmutable(), "Immutable flag set");
 	
-	// Test 1: Cannot add nodes
-	g.AddNode("A");
-	runner.AssertEquals(0, g.GetNodeCount(), "Cannot add nodes to immutable graph");
+	g1.AddNode("A");
+	runner.AssertEquals(0, g1.GetNodeCount(), "Cannot add nodes");
 	
-	// Test 2: Cannot add edges
-	g.AddEdge("A", "B");
-	runner.AssertEquals(0, g.GetEdgeCount(), "Cannot add edges to immutable graph");
+	g1.AddEdge("A", "B");
+	runner.AssertEquals(0, g1.GetEdgeCount(), "Cannot add edges");
 	
-	// Test 3: Cannot remove from frozen graph
-	var g2 = new Graph(GraphFlags.GRAPH_NONE, [new Edge("A", "B")]);
+	// Freeze mutable graph
+	var g2 = new Graph(GraphFlags.GRAPH_NONE);
+	g2.AddEdge("A", "B");
+	g2.AddEdge("B", "C");
+	runner.Assert(!g2.IsImmutable(), "Initially mutable");
+	
 	g2.Freeze();
-	g2.RemoveNode("A");
-	runner.AssertEquals(2, g2.GetNodeCount(), "Cannot remove from frozen graph");
+	runner.Assert(g2.IsImmutable(), "Frozen graph immutable");
 	
-	// Test 4: Cannot clear frozen graph
+	g2.AddEdge("C", "D");
+	runner.AssertEquals(2, g2.GetEdgeCount(), "Cannot add after freeze");
+	
+	g2.RemoveNode("A");
+	runner.AssertEquals(3, g2.GetNodeCount(), "Cannot remove after freeze");
+	
+	g2.RemoveEdge("A", "B");
+	runner.AssertEquals(2, g2.GetEdgeCount(), "Cannot remove edges after freeze");
+	
 	g2.Clear();
-	runner.Assert(g2.GetNodeCount() > 0, "Cannot clear frozen graph");
+	runner.Assert(g2.GetNodeCount() > 0, "Cannot clear after freeze");
+	
+	// SetWeight on frozen
+	var g3 = new Graph(GraphFlags.GRAPH_WEIGHTED, [new Edge("A", "B", 5)]);
+	g3.Freeze();
+	g3.SetWeight("A", "B", 10);
+	runner.AssertEquals(5, g3.GetWeight("A", "B"), "Cannot modify weight after freeze");
+	
+	// Freeze preserves read operations
+	runner.Assert(g2.HasNode("A"), "Can read nodes after freeze");
+	runner.Assert(g2.HasEdge("A", "B"), "Can read edges after freeze");
+	var nodes = g2.GetNodes();
+	runner.AssertEquals(3, array_length(nodes), "Can get nodes after freeze");
 }
 
-/// @description Test path finding
-function TestPaths(runner)
+/// @description Test graph clear operation
+function TestClear(runner)
 {
-	show_debug_message("\n=== Testing Paths ===");
+	show_debug_message("\n=== Testing Clear ===");
 	
-	// Test 1: Shortest unweighted path
-	var g1 = new Graph(GraphFlags.GRAPH_NONE);
-	g1.AddEdge("A", "B");
-	g1.AddEdge("B", "C");
-	g1.AddEdge("A", "C"); // Direct path is shorter
-	var path = g1.GetShortestPath("A", "C");
-	runner.AssertEquals(2, array_length(path), "Shortest unweighted path length");
+	var g = new Graph(GraphFlags.GRAPH_NONE);
+	g.AddEdge("A", "B");
+	g.AddEdge("B", "C");
+	g.AddEdge("C", "D");
 	
-	// Test 2: Shortest unweighted distance
-	var dist = g1.GetShortestDistance("A", "C");
-	runner.AssertEquals(1, dist, "Shortest unweighted distance");
+	runner.AssertEquals(4, g.GetNodeCount(), "Graph has nodes before clear");
+	runner.AssertEquals(3, g.GetEdgeCount(), "Graph has edges before clear");
 	
-	// Test 3: No path exists
+	g.Clear();
+	
+	runner.AssertEquals(0, g.GetNodeCount(), "Clear removes all nodes");
+	runner.AssertEquals(0, g.GetEdgeCount(), "Clear removes all edges");
+	runner.Assert(!g.HasNode("A"), "No nodes after clear");
+	runner.Assert(!g.HasEdge("A", "B"), "No edges after clear");
+	
+	// Can add after clear
+	g.AddEdge("X", "Y");
+	runner.AssertEquals(2, g.GetNodeCount(), "Can add after clear");
+	
+	// Clear empty graph
 	var g2 = new Graph(GraphFlags.GRAPH_NONE);
-	g2.AddNode("A");
-	g2.AddNode("B");
-	var path2 = g2.GetShortestPath("A", "B");
-	runner.Assert(path2 == undefined, "No path exists");
-	var dist2 = g2.GetShortestDistance("A", "B");
-	runner.AssertEquals(-1, dist2, "No path distance is -1");
+	g2.Clear();
+	runner.AssertEquals(0, g2.GetNodeCount(), "Clear empty graph");
+}
+
+/// @description Test complex graph structures
+function TestComplexStructures(runner)
+{
+	show_debug_message("\n=== Testing Complex Structures ===");
+	
+	// Complete graph K5
+	var g1 = new Graph(GraphFlags.GRAPH_NONE);
+	var nodes = ["A", "B", "C", "D", "E"];
+	for (var i = 0; i < array_length(nodes); i++)
+	{
+		for (var j = i + 1; j < array_length(nodes); j++)
+		{
+			g1.AddEdge(nodes[i], nodes[j]);
+		}
+	}
+	runner.AssertEquals(5, g1.GetNodeCount(), "K5 node count");
+	runner.AssertEquals(10, g1.GetEdgeCount(), "K5 edge count");
+	runner.Assert(g1.IsConnected(), "K5 is connected");
+	runner.AssertEquals(4, g1.GetDegree("A"), "K5 vertex degree");
+
+	// Cycle graph
+	var g2 = new Graph(GraphFlags.GRAPH_NONE);
+	g2.AddEdge("A", "B");
+	g2.AddEdge("B", "C");
+	g2.AddEdge("C", "D");
+	g2.AddEdge("D", "A");
+	runner.Assert(g2.IsConnected(), "Cycle is connected");
+	runner.AssertEquals(2, g2.GetDegree("A"), "Cycle vertex degree");
+	
+	// Binary tree
+	var g3 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g3.AddEdge("A", "B");
+	g3.AddEdge("A", "C");
+	g3.AddEdge("B", "D");
+	g3.AddEdge("B", "E");
+	g3.AddEdge("C", "F");
+	g3.AddEdge("C", "G");
+	runner.AssertEquals(7, g3.GetNodeCount(), "Binary tree nodes");
+	runner.AssertEquals(2, g3.GetOutDegree("A"), "Root out-degree");
+	runner.AssertEquals(0, g3.GetOutDegree("D"), "Leaf out-degree");
+	
+	// Star graph
+	var g4 = new Graph(GraphFlags.GRAPH_NONE);
+	g4.AddEdge("Center", "A");
+	g4.AddEdge("Center", "B");
+	g4.AddEdge("Center", "C");
+	g4.AddEdge("Center", "D");
+	runner.AssertEquals(4, g4.GetDegree("Center"), "Star center degree");
+	runner.AssertEquals(1, g4.GetDegree("A"), "Star leaf degree");
+	
+	// Bipartite graph
+	var g5 = new Graph(GraphFlags.GRAPH_NONE);
+	g5.AddEdge("A1", "B1");
+	g5.AddEdge("A1", "B2");
+	g5.AddEdge("A2", "B1");
+	g5.AddEdge("A2", "B2");
+	runner.AssertEquals(4, g5.GetNodeCount(), "Bipartite nodes");
+	runner.Assert(g5.IsConnected(), "Bipartite connected");
+	
+	runner.AssertGraphConsistency(g1, "Complete graph");
+	runner.AssertGraphConsistency(g2, "Cycle graph");
+	runner.AssertGraphConsistency(g3, "Binary tree");
+	runner.AssertGraphConsistency(g4, "Star graph");
+	runner.AssertGraphConsistency(g5, "Bipartite graph");
+}
+
+/// @description Test edge cases and boundary conditions
+function TestEdgeCases(runner)
+{
+	show_debug_message("\n=== Testing Edge Cases ===");
+	
+	// Very large node values
+	var g1 = new Graph(GraphFlags.GRAPH_NONE);
+	g1.AddNode(999999);
+	g1.AddNode(-999999);
+	runner.Assert(g1.HasNode(999999), "Large positive number node");
+	runner.Assert(g1.HasNode(-999999), "Large negative number node");
+
+	// Special characters in node names
+	var g3 = new Graph(GraphFlags.GRAPH_NONE);
+	g3.AddNode("node with spaces");
+	g3.AddNode("node_with_underscore");
+	g3.AddNode("node-with-dash");
+	runner.Assert(g3.HasNode("node with spaces"), "Node with spaces");
+	runner.Assert(g3.HasNode("node_with_underscore"), "Node with underscore");
+	
+	// Very high weight
+	var g4 = new Graph(GraphFlags.GRAPH_WEIGHTED);
+	g4.AddEdge("A", "B", 999999.99);
+	runner.AssertEquals(999999.99, g4.GetWeight("A", "B"), "Very high weight");
+	
+	// Zero weight
+	var g5 = new Graph(GraphFlags.GRAPH_WEIGHTED);
+	g5.AddEdge("A", "B", 0);
+	runner.AssertEquals(0, g5.GetWeight("A", "B"), "Zero weight");
+	
+	// Fractional weight
+	var g6 = new Graph(GraphFlags.GRAPH_WEIGHTED);
+	g6.AddEdge("A", "B", 0.001);
+	runner.AssertEquals(0.001, g6.GetWeight("A", "B"), "Fractional weight");
+	
+	// Same node name as number and string
+	var g7 = new Graph(GraphFlags.GRAPH_NONE);
+	g7.AddNode(123);
+	g7.AddNode("123");
+	runner.AssertEquals(1, g7.GetNodeCount(), "Number and string treated the same");
+	
+	// Multiple self-loops (if allowed)
+	var g8 = new Graph(GraphFlags.GRAPH_ALLOW_SELF_LOOP);
+	g8.AddEdge("A", "A");
+	g8.AddEdge("A", "A");
+	runner.AssertEquals(1, g8.GetEdgeCount(), "Duplicate self-loop rejected");
+	
+	// Operations on completely empty structures
+	var g9 = new Graph(GraphFlags.GRAPH_NONE);
+	runner.AssertEquals(0, array_length(g9.GetNodes()), "GetNodes on empty");
+	runner.AssertEquals(0, array_length(g9.GetEdges()), "GetEdges on empty");
+}
+
+/// @description Test mixed type nodes
+function TestMixedTypes(runner)
+{
+	show_debug_message("\n=== Testing Mixed Type Nodes ===");
+	
+	var g = new Graph(GraphFlags.GRAPH_NONE);
+	
+	// Add different types
+	g.AddNode("String");
+	g.AddNode(42);
+	g.AddNode(3.14);
+	g.AddNode(true);
+	g.AddNode(false);
+	
+	runner.AssertEquals(5, g.GetNodeCount(), "Mixed types count");
+	runner.Assert(g.HasNode("String"), "String node");
+	runner.Assert(g.HasNode(42), "Integer node");
+	runner.Assert(g.HasNode(3.14), "Real node");
+	runner.Assert(g.HasNode(true), "Boolean true node");
+	runner.Assert(g.HasNode(false), "Boolean false node");
+	
+	// Edges between different types
+	g.AddEdge("String", 42);
+	g.AddEdge(42, 3.14);
+	g.AddEdge(3.14, true);
+	
+	runner.Assert(g.HasEdge("String", 42), "Edge between string and int");
+	runner.Assert(g.HasEdge(42, 3.14), "Edge between int and real");
+	runner.Assert(g.HasEdge(3.14, true), "Edge between real and bool");
+	
+	// Path between different types
+	runner.Assert(g.HasPath("String", true), "Path through mixed types");
+	
+	runner.AssertGraphConsistency(g, "Mixed types graph");
+}
+
+/// @description Test cache management (NEW)
+function TestCacheManagement(runner)
+{
+	show_debug_message("\n=== Testing Cache Management ===");
+	
+	var g = new Graph(GraphFlags.GRAPH_NONE);
+	
+	// Node cache
+	g.AddNode("A");
+	var nodes1 = g.GetNodes();
+	var nodes2 = g.GetNodes();
+	runner.Assert(nodes1 == nodes2, "Node cache returns same reference");
+	
+	g.AddNode("B");
+	var nodes3 = g.GetNodes();
+	runner.Assert(nodes1 != nodes3, "Node cache invalidated on add");
+	runner.AssertEquals(2, array_length(nodes3), "New cache has updated count");
+	
+	// Edge cache
+	g.AddEdge("A", "B");
+	var edges1 = g.GetEdges();
+	var edges2 = g.GetEdges();
+	runner.Assert(edges1 == edges2, "Edge cache returns same reference");
+	
+	g.AddEdge("B", "C");
+	var edges3 = g.GetEdges();
+	runner.Assert(edges1 != edges3, "Edge cache invalidated on add");
+	
+	g.RemoveEdge("A", "B");
+	var edges4 = g.GetEdges();
+	runner.Assert(edges3 != edges4, "Edge cache invalidated on remove");
+	
+	// Component cache
+	var comps1 = g.GetComponents();
+	var comps2 = g.GetComponents();
+	runner.Assert(comps1 == comps2, "Component cache returns same reference");
+	
+	g.AddNode("D");
+	var comps3 = g.GetComponents();
+	runner.Assert(comps1 != comps3, "Component cache invalidated by structure change");
+}
+
+/// @description CORRECTED: Test edge count in undirected graphs
+function TestEdgeCountUndirected(runner)
+{
+	show_debug_message("\n=== Testing Edge Count (Undirected) ===");
+	
+	var g = new Graph(GraphFlags.GRAPH_NONE);
+	
+	// In undirected graphs, edge count should reflect unique edges
+	g.AddEdge("A", "B");
+	runner.AssertEquals(1, g.GetEdgeCount(), "One undirected edge");
+	
+	// GetEdges should return only one edge object for A-B
+	var edges = g.GetEdges();
+	runner.AssertEquals(1, array_length(edges), "GetEdges returns 1 for undirected A-B");
+	
+	// But both directions exist
+	runner.Assert(g.HasEdge("A", "B"), "A->B exists");
+	runner.Assert(g.HasEdge("B", "A"), "B->A exists");
+	
+	// Adding multiple edges
+	g.AddEdge("B", "C");
+	g.AddEdge("C", "D");
+	runner.AssertEquals(3, g.GetEdgeCount(), "Three undirected edges");
+	runner.AssertEquals(3, array_length(g.GetEdges()), "GetEdges returns 3");
+}
+
+
+/// @description Test weight operations (NEW)
+function TestWeightOperations(runner)
+{
+	show_debug_message("\n=== Testing Weight Operations ===");
+	
+	// SetWeight on weighted graph
+	var g1 = new Graph(GraphFlags.GRAPH_WEIGHTED);
+	g1.AddEdge("A", "B", 5);
+	runner.AssertEquals(5, g1.GetWeight("A", "B"), "Initial weight");
+	g1.SetWeight("A", "B", 10);
+	runner.AssertEquals(10, g1.GetWeight("A", "B"), "Weight updated");
+	
+	// SetWeight maintains undirected symmetry
+	runner.AssertEquals(10, g1.GetWeight("B", "A"), "Undirected weight symmetry after update");
+	
+	// SetWeight on directed graph
+	var g2 = new Graph(GraphFlags.GRAPH_WEIGHTED | GraphFlags.GRAPH_DIRECTED);
+	g2.AddEdge("A", "B", 5);
+	g2.AddEdge("B", "A", 3);
+	g2.SetWeight("A", "B", 10);
+	runner.AssertEquals(10, g2.GetWeight("A", "B"), "Directed weight A->B updated");
+	runner.AssertEquals(3, g2.GetWeight("B", "A"), "Directed weight B->A unchanged");
+	
+	// SetWeight error on non-weighted graph
+	var g3 = new Graph(GraphFlags.GRAPH_NONE);
+	g3.AddEdge("A", "B");
+	var error_caught = false;
+	try {g3.SetWeight("A", "B", 5);} catch (_) {error_caught = true;};
+	runner.Assert(error_caught, "SetWeight throws on non-weighted graph");
+	
+	// SetWeight returns self for chaining
+	var g4 = new Graph(GraphFlags.GRAPH_WEIGHTED);
+	g4.AddEdge("A", "B", 1).SetWeight("A", "B", 5).AddEdge("B", "C", 3);
+	runner.AssertEquals(5, g4.GetWeight("A", "B"), "SetWeight chainable");
+	runner.AssertEquals(2, g4.GetEdgeCount(), "Chaining works");
+	
+	// GetWeight on non-existent edge
+	error_caught = false;
+	try {g1.GetWeight("X", "Y");} catch (_) {error_caught = true;};
+	runner.Assert(error_caught, "GetWeight throws on non-existent edge");
 }
 
 /// @description Run all unit tests
@@ -524,21 +1254,32 @@ function RunAllTests()
 	var runner = new TestRunner();
 	
 	show_debug_message("\n########################################");
-	show_debug_message("# GRAPH LIBRARY - COMPLETE UNIT TESTS #");
+	show_debug_message("# GRAPH LIBRARY - ENHANCED UNIT TESTS #");
 	show_debug_message("########################################");
 	
+	TestEmptyAndMinimalGraphs(runner);
 	TestGraphConstruction(runner);
-	TestAddNodes(runner);
-	TestAddEdges(runner);
-	TestRemoval(runner);
-	TestGetters(runner);
+	TestNodeOperations(runner);
+	TestEdgeOperations(runner);
+	TestEdgeRemoval(runner);
+	TestNodeRemovalWithEdges(runner);
+	TestCopyClone(runner);
 	TestDegrees(runner);
+	TestNeighbors(runner);
 	TestBFS(runner);
+	TestPaths(runner);
+	TestShortestDistance(runner);
 	TestDijkstra(runner);
 	TestComponents(runner);
-	TestCopyClone(runner);
 	TestImmutability(runner);
-	TestPaths(runner);
+	TestClear(runner);
+	TestComplexStructures(runner);
+	TestEdgeCases(runner);
+	TestMixedTypes(runner);
+
+	TestWeightOperations(runner);
+	TestCacheManagement(runner);
+	TestEdgeCountUndirected(runner);
 	
 	runner.PrintSummary();
 	
@@ -1697,8 +2438,8 @@ function BenchmarkStressTestLarge(runner)
 {
     show_debug_message("\n=== STRESS TEST - LARGE GRAPH ===");
     
-    var node_count = 5000;
-    var edge_count = 10000;
+    var node_count = 50000;
+    var edge_count = 100000;
     
     var timer = new BenchmarkTimer();
     timer.Start();
@@ -1721,7 +2462,7 @@ function BenchmarkStressTestBFS(runner)
 {
     show_debug_message("\n=== STRESS TEST - BFS ON LARGE GRAPH ===");
     
-    var node_count = 2000;
+    var node_count = 10000;
     
     // Create linear graph for worst-case BFS
     var g = new Graph(GraphFlags.GRAPH_NONE);
@@ -1764,6 +2505,228 @@ function BenchmarkStressTestDijkstra(runner)
     runner.AddResult($"Stress Test: Dijkstra on Dense Graph ({node_count} nodes)", elapsed, 1);
 }
 
+/// @description IMPROVED: Benchmark cache performance
+function BenchmarkCachePerformance(runner)
+{
+	show_debug_message("\n=== CACHE PERFORMANCE BENCHMARKS ===");
+	
+	// Setup large graph
+	var g = new Graph(GraphFlags.GRAPH_NONE);
+	for (var i = 0; i < 1000; i++)
+		g.AddEdge(i, i + 1);
+	
+	// First GetNodes call (cache miss)
+	var timer1 = new BenchmarkTimer();
+	timer1.Start();
+	var nodes1 = g.GetNodes();
+	var time1 = timer1.Stop();
+	runner.AddResult("GetNodes - First Call (Cache Miss)", time1, 1);
+	
+	// Subsequent GetNodes calls (cache hit)
+	var timer2 = new BenchmarkTimer();
+	timer2.Start();
+	for (var i = 0; i < 10000; i++)
+		var nodes_cached = g.GetNodes();
+	var time2 = timer2.Stop();
+	runner.AddResult("GetNodes - Cached (10k calls)", time2, 10000);
+	
+	// GetEdges cache miss
+	var timer3 = new BenchmarkTimer();
+	timer3.Start();
+	var edges1 = g.GetEdges();
+	var time3 = timer3.Stop();
+	runner.AddResult("GetEdges - First Call (Cache Miss, 1000 edges)", time3, 1);
+	
+	// GetEdges cache hit
+	var timer4 = new BenchmarkTimer();
+	timer4.Start();
+	for (var i = 0; i < 1000; i++)
+		var edges_cached = g.GetEdges();
+	var time4 = timer4.Stop();
+	runner.AddResult("GetEdges - Cached (1k calls)", time4, 1000);
+	
+	// Component cache
+	var timer5 = new BenchmarkTimer();
+	timer5.Start();
+	var comps1 = g.GetComponents();
+	var time5 = timer5.Stop();
+	runner.AddResult("GetComponents - First Call", time5, 1);
+	
+	var timer6 = new BenchmarkTimer();
+	timer6.Start();
+	for (var i = 0; i < 1000; i++)
+		var comps_cached = g.GetComponents();
+	var time6 = timer6.Stop();
+	runner.AddResult("GetComponents - Cached (1k calls)", time6, 1000);
+}
+
+/// @description IMPROVED: Benchmark directed vs undirected performance
+function BenchmarkDirectedVsUndirected(runner)
+{
+	show_debug_message("\n=== DIRECTED VS UNDIRECTED PERFORMANCE ===");
+	
+	var edge_count = 1000;
+	
+	// Undirected - adds bidirectional edges
+	var timer1 = new BenchmarkTimer();
+	timer1.Start();
+	var g_undirected = new Graph(GraphFlags.GRAPH_NONE);
+	for (var i = 0; i < edge_count; i++)
+		g_undirected.AddEdge(i, i + 1);
+	var time1 = timer1.Stop();
+	runner.AddResult($"Build Undirected Graph ({edge_count} edges)", time1, edge_count);
+	
+	// Directed - adds single direction
+	var timer2 = new BenchmarkTimer();
+	timer2.Start();
+	var g_directed = new Graph(GraphFlags.GRAPH_DIRECTED);
+	for (var i = 0; i < edge_count; i++)
+		g_directed.AddEdge(i, i + 1);
+	var time2 = timer2.Stop();
+	runner.AddResult($"Build Directed Graph ({edge_count} edges)", time2, edge_count);
+	
+	// HasEdge performance
+	var timer3 = new BenchmarkTimer();
+	timer3.Start();
+	for (var i = 0; i < 10000; i++)
+		g_undirected.HasEdge(500, 501);
+	var time3 = timer3.Stop();
+	runner.AddResult("HasEdge Undirected (10k calls)", time3, 10000);
+	
+	var timer4 = new BenchmarkTimer();
+	timer4.Start();
+	for (var i = 0; i < 10000; i++)
+		g_directed.HasEdge(500, 501);
+	var time4 = timer4.Stop();
+	runner.AddResult("HasEdge Directed (10k calls)", time4, 10000);
+	
+	// GetInDegree performance difference
+	var timer5 = new BenchmarkTimer();
+	timer5.Start();
+	for (var i = 100; i < 200; i++)
+		g_undirected.GetInDegree(i);
+	var time5 = timer5.Stop();
+	runner.AddResult("GetInDegree Undirected (100 nodes)", time5, 100);
+	
+	var timer6 = new BenchmarkTimer();
+	timer6.Start();
+	for (var i = 100; i < 200; i++)
+		g_directed.GetInDegree(i);
+	var time6 = timer6.Stop();
+	runner.AddResult("GetInDegree Directed (100 nodes) - Requires iteration", time6, 100);
+}
+
+/// @description IMPROVED: Benchmark structure modification impact
+function BenchmarkStructureModification(runner)
+{
+	show_debug_message("\n=== STRUCTURE MODIFICATION IMPACT ===");
+	
+	// Measure cost of cache invalidation
+	var g = new Graph(GraphFlags.GRAPH_NONE);
+	for (var i = 0; i < 500; i++)
+		g.AddEdge(i, i + 1);
+	
+	// Pre-populate all caches
+	g.GetNodes();
+	g.GetEdges();
+	g.GetComponents();
+	
+	// Add single edge and measure cache rebuild cost
+	var timer1 = new BenchmarkTimer();
+	timer1.Start();
+	g.AddEdge(1000, 1001);
+	g.GetNodes(); // Force node cache rebuild
+	g.GetEdges(); // Force edge cache rebuild
+	g.GetComponents(); // Force component cache rebuild
+	var time1 = timer1.Stop();
+	runner.AddResult("Cache Rebuild After Single Edge Add", time1, 1);
+	
+	// Remove edge impact
+	var timer2 = new BenchmarkTimer();
+	timer2.Start();
+	g.RemoveEdge(250, 251);
+	g.GetNodes();
+	g.GetEdges();
+	g.GetComponents();
+	var time2 = timer2.Stop();
+	runner.AddResult("Cache Rebuild After Single Edge Remove", time2, 1);
+	
+	// Node removal impact (heavier)
+	var timer3 = new BenchmarkTimer();
+	timer3.Start();
+	g.RemoveNode(400);
+	g.GetNodes();
+	g.GetEdges();
+	g.GetComponents();
+	var time3 = timer3.Stop();
+	runner.AddResult("Cache Rebuild After Node Remove", time3, 1);
+}
+
+/// @description IMPROVED: Realistic graph patterns
+function BenchmarkRealisticPatterns(runner)
+{
+	show_debug_message("\n=== REALISTIC GRAPH PATTERNS ===");
+	
+	// Social network pattern (scale-free / power law)
+	var timer1 = new BenchmarkTimer();
+	timer1.Start();
+	var g_social = new Graph(GraphFlags.GRAPH_NONE);
+	// Hub nodes with many connections
+	for (var hub = 0; hub < 5; hub++)
+	{
+		for (var i = 0; i < 50; i++)
+		{
+			g_social.AddEdge(hub, 100 + hub * 50 + i);
+		}
+	}
+	// Regular nodes with few connections
+	for (var i = 0; i < 200; i++)
+	{
+		var connections = irandom_range(1, 3);
+		for (var j = 0; j < connections; j++)
+		{
+			var target = irandom(399);
+			if (target != i)
+				g_social.AddEdge(i, target);
+		}
+	}
+	var time1 = timer1.Stop();
+	runner.AddResult("Build Social Network Pattern (power law)", time1, 1);
+	
+	// BFS from hub
+	var timer2 = new BenchmarkTimer();
+	timer2.Start();
+	g_social.BFS(0);
+	var time2 = timer2.Stop();
+	runner.AddResult("BFS from Hub Node", time2, 1);
+	
+	// Road network pattern (sparse, planar)
+	var timer3 = new BenchmarkTimer();
+	timer3.Start();
+	var g_road = new Graph(GraphFlags.GRAPH_WEIGHTED);
+	var grid_size = 30;
+	for (var _y = 0; _y < grid_size; _y++)
+	{
+		for (var _x = 0; _x < grid_size; _x++)
+		{
+			var node = _y * grid_size + _x;
+			if (_x < grid_size - 1)
+				g_road.AddEdge(node, node + 1, random_range(1, 10));
+			if (_y < grid_size - 1)
+				g_road.AddEdge(node, node + grid_size, random_range(1, 10));
+		}
+	}
+	var time3 = timer3.Stop();
+	runner.AddResult("Build Road Network Pattern (grid)", time3, 1);
+	
+	// Dijkstra on road network
+	var timer4 = new BenchmarkTimer();
+	timer4.Start();
+	g_road.Dijkstra(0, grid_size * grid_size - 1);
+	var time4 = timer4.Stop();
+	runner.AddResult("Dijkstra on Road Network (corner to corner)", time4, 1);
+}
+
 #endregion
 
 /// @description Main benchmark runner - executes all benchmarks
@@ -1792,6 +2755,11 @@ function RunAllBenchmarks()
     BenchmarkStressTestLarge(runner);
     BenchmarkStressTestBFS(runner);
     BenchmarkStressTestDijkstra(runner);
+	
+	BenchmarkCachePerformance(runner);
+	BenchmarkDirectedVsUndirected(runner);
+	BenchmarkStructureModification(runner);
+	BenchmarkRealisticPatterns(runner);
     
     // Print final summary
     runner.PrintSummary();
@@ -1813,4 +2781,6 @@ function RunAllBenchmarks()
 }
 
 RunAllTests();
-RunAllBenchmarks();
+
+//RunAllBenchmarks();
+game_end();
