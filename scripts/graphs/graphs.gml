@@ -24,12 +24,13 @@ function Edge(from, to, weight = 1) constructor
 /// @description Creates a new graph data structure with specified configuration
 /// @param {Real} flags Bitwise flags from GraphFlags enum to configure the graph
 /// @param {Any} [builder] Optional builder with multiple initialization options. See documentation for all possibilities
-/// @return {Struct.self}
+/// @param {Any...} args Optional arguments for builder in case its callable
+/// @return {Struct.Graph}
 function Graph(flags, builder = undefined) constructor
 {
 	static __graph_count = 0;
 
-	self.__graph_id = __graph_count++;
+	self.__graph_id = __graph_count;
 	self.__flags = flags
 	self.__flags &= ~GraphFlags.GRAPH_IMMUTABLE;
 
@@ -48,7 +49,13 @@ function Graph(flags, builder = undefined) constructor
 	self.__components_cache = undefined;
 
 	if (builder != undefined)
-		self.__build__(builder);
+	{
+		var _args = [];
+		for (var i = 2; i < argument_count; i++)
+			array_push(_args, argument[i]);
+		self.__build__(builder, _args);
+	}
+		
 	self.__flags = flags;
 	if (self.IsImmutable())
 		self.Freeze();
@@ -94,17 +101,137 @@ function Graph(flags, builder = undefined) constructor
 			}
 		}
 		ds_queue_destroy(_queue);
-		return ({visited: _result, previous: _previous});
+		return ({path: _result, visited: _visited, previous: _previous});
 	}
 
-	/// @description Performs depth-first search traversal from source node (NOT YET IMPLEMENTED)
+	/// @description Performs depth-first search traversal from source node
 	/// @param {Any} source The starting node for traversal
 	/// @param {Any} [target] Optional target node to stop at when found
-	/// @param {Function} [callback] Optional callback function called for each visited node
-	/// @return {Struct} Returns traversal result structure
+	/// @param {Function} [callback] Optional callback function(current_node, previous_node) called for each visited node
+	/// @return {Struct} Returns {visited: array of nodes in visit order, previous: struct mapping nodes to their predecessors}
 	static DFS = function(source, target = undefined, callback = undefined)
 	{
-		//to implement
+		if (!self.HasNode(source))
+			self.__throw__($"Node {source} does not exist");
+		if (target != undefined && !self.HasNode(target))
+			self.__throw__($"Node {target} does not exist");
+		var _result = [];
+		var _stack = [];
+		var _visited = {};
+		var _previous = {};
+
+		array_push(_stack, source);
+		while (array_length(_stack) > 0)
+		{
+			var _current = array_pop(_stack);
+			if (_visited[$ _current])
+				continue ;
+			_visited[$ _current] = true;
+			array_push(_result, _current);
+			if (callback != undefined)
+				callback(_current, _previous[$ _current]);
+			if (_current == target)
+				break ;
+			var _neighbors = self.GetNeighbors(_current);
+			for (var i = array_length(_neighbors) - 1; i >= 0; i--)
+			{
+				var _neighbor = _neighbors[i];
+				if (_visited[$ _neighbor])
+					continue ;
+				array_push(_stack, _neighbor);
+				_previous[$ _neighbor] = _current;
+			}
+		}
+		return ({path: _result, visited: _visited, previous: _previous});
+	}
+
+	static __DFSGetCycleUndirected = function(source, _visited = undefined, _previous = undefined)
+	{
+		_visited ??= {};
+		_previous ??= {};
+		var _stack = [];
+		array_push(_stack, source);
+
+		while (array_length(_stack) > 0)
+		{
+			var _current = array_pop(_stack);
+			if (_visited[$ _current])
+				continue ;
+
+			_visited[$ _current] = true;
+			var _parent = _previous[$ _current];
+			var _neighbors = self.GetNeighbors(_current);
+			for (var i = array_length(_neighbors) - 1; i >= 0; i--)
+			{
+				var _neighbor = _neighbors[i];
+				if (!_visited[$ _neighbor])
+				{
+					
+					_previous[$ _neighbor] = _current;
+					array_push(_stack, _neighbor);
+				}
+				else if (_neighbor != _parent)
+				{
+					var _cycle = [_neighbor];
+					var _cur = _current;
+					while (_cur != _neighbor && _cur != undefined)
+					{
+						array_push(_cycle, _cur);
+						_cur = _previous[$ _cur];
+					}
+					array_push(_cycle, _neighbor);
+					return (_cycle);
+				}
+			}
+		}
+		return (undefined);
+	}
+
+	static __DFSGetCycleDirected = function(source, _state = undefined, _previous = undefined)
+	{
+		_state ??= {};
+		_previous ??= {};
+		var _stack = [];
+
+		array_push(_stack, source);
+		_state[$ source] = __GraphColor.GRAY;
+		while (array_length(_stack) > 0)
+		{
+			var _current = array_last(_stack);
+			var _neighbors = self.GetNeighbors(_current);
+			var _all_processed = true;
+
+			for (var i = array_length(_neighbors) - 1; i >= 0; i--)
+			{
+				var _neighbor = _neighbors[i];
+				if (!variable_struct_exists(_state, _neighbor)) // __GraphColor.WHITE
+				{
+					_state[$ _neighbor] = __GraphColor.GRAY;
+					_previous[$ _neighbor] = _current;
+					array_push(_stack, _neighbor);
+					_all_processed = false;
+					break ;
+				}
+				else if (_state[$ _neighbor] == __GraphColor.GRAY)
+				{
+					var _cycle = [_neighbor];
+					var _cur = _current;
+					while (_cur != _neighbor && _cur != undefined)
+					{
+						array_push(_cycle, _cur);
+						_cur = _previous[$ _cur];
+					}
+					array_push(_cycle, _neighbor);
+					return (_cycle);
+				}
+			}
+			if (_all_processed)
+			{
+				_state[$ _current] = __GraphColor.BLACK;
+				array_pop(_stack);
+			}
+		}
+		return (undefined);
 	}
 
 	/// @description Finds shortest paths from source to all reachable nodes using Dijkstra's algorithm
@@ -157,7 +284,7 @@ function Graph(flags, builder = undefined) constructor
 			}
 		}
 		ds_priority_destroy(_queue);
-		return ({distances: _distances, previous: _prev});
+		return ({distances: _distances, previous: _prev, visited: _visited});
 	}
 
 	#endregion
@@ -223,6 +350,30 @@ function Graph(flags, builder = undefined) constructor
 	{
 		gml_pragma("forceinline");
 		return (self.GetComponentsCount() == 1);
+	}
+
+	static HasCycle = function()
+	{
+		gml_pragma("forceinline");
+		return (self.GetCycle() != undefined);
+	}
+
+	static IsCyclic = function()
+	{
+		gml_pragma("forceinline");
+		return (self.HasCycle());
+	}
+
+	static IsAcyclic = function()
+	{
+		gml_pragma("forceinline");
+		return (!self.HasCycle());
+	}
+
+	static IsDAG = function()
+	{
+		gml_pragma("forceinline");
+		return (self.IsDirected() && self.IsAcyclic())
 	}
 
 	#endregion
@@ -473,7 +624,6 @@ function Graph(flags, builder = undefined) constructor
 	/// @return {Struct} Returns {path: array of nodes or undefined, distance: real or infinity}
 	static GetShortestPathDataWeighted = function(source, target)
 	{
-		gml_pragma("forceinline");
 		if (!self.HasNode(source) || !self.HasNode(target))
 			self.__throw__($"Invalid nodes for path {source} to {target}")
 		var _result = self.Dijkstra(source, target);
@@ -489,7 +639,6 @@ function Graph(flags, builder = undefined) constructor
 	/// @return {Struct} Returns {path: array of nodes or undefined, distance: real or infinity}
 	static GetShortestPathDataUnweighted = function(source, target)
 	{
-		gml_pragma("forceinline");
 		if (!self.HasNode(source) || !self.HasNode(target))
 			self.__throw__($"Invalid nodes for path {source} to {target}")
 		var _result = self.BFS(source, target);
@@ -497,6 +646,39 @@ function Graph(flags, builder = undefined) constructor
 			return ({path: undefined, distance: infinity});
 		var _path = __reconstructPath(_result.previous, source, target);
 		return ({path: _path, distance: is_array(_path) ? array_length(_path) - 1 : infinity});
+	}
+
+	/// @description Calculates the density of the graph (ratio of actual edges to possible edges)
+	/// @return {Real} Returns density value between 0 and 1, or 0 for graphs with 0 or 1 nodes
+	static GetDensity = function()
+	{
+		gml_pragma("forceinline")
+		var _n = self.GetNodeCount();
+		if (_n <= 1)
+			return (0);
+
+		var _divisor = (self.__flags & GraphFlags.GRAPH_ALLOW_SELF_LOOP) ? _n : _n - 1;
+		return (self.GetEdgeCount() / (_n * _divisor / (self.IsDirected() ? 1 : 2)));
+	}
+
+	static GetCycle = function()
+	{
+		gml_pragma("forceinline");
+		var _state = {};
+		var _previous = {};
+		var _nodes = self.GetNodes();
+		var _search = self.IsDirected() ? self.__DFSGetCycleDirected : self.__DFSGetCycleUndirected;
+		for (var i = 0; i < array_length(_nodes); i++)
+		{
+			var _node = _nodes[i];
+			if (!variable_struct_exists(_state, _node))
+			{
+				var _result = _search(_node, _state, _previous);
+				if (_result != undefined)
+					return (_result);
+			}
+		}
+		return (undefined);
 	}
 
 	#endregion
@@ -846,9 +1028,12 @@ function Graph(flags, builder = undefined) constructor
 
 	/// @description Internal function to build graph from various input formats
 	/// @param {Any} builder Graph, struct with nodes/edges, array, or single node
+	/// @param {Array<Any>} args Arguments for builder if its callable
 	/// @ignore
-	static __build__ = function(builder)
+	static __build__ = function(builder, args)
 	{
+		if (is_callable(builder))
+			builder();
 		if (is_struct(builder))
 		{
 			if (builder[$ "nodes"] != undefined)
@@ -897,7 +1082,7 @@ function __isBFSPathValid(bfs_result, from, to)
 	gml_pragma("forceinline");
 	if (bfs_result == undefined)
 		return (false);
-	return (array_length(bfs_result.visited) > 0 && bfs_result.visited[array_length(bfs_result.visited) - 1] == to);
+	return (array_length(bfs_result.path) > 0 && array_last(bfs_result.path) == to);
 }
 
 /// @description Internal Helper function to reconstruct path from BFS/Dijkstra predecessor map
@@ -918,4 +1103,11 @@ function __reconstructPath(previous, source, target)
 		_cur = previous[$ _cur];
 	}
 	return (_path);
+}
+
+enum __GraphColor
+{
+	WHITE, //unvisited
+	GRAY, //in recursion
+	BLACK //completly visited
 }

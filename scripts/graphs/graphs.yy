@@ -5,8 +5,8 @@
   "isDnD":false,
   "name":"graphs",
   "parent":{
-    "name":"Graph",
-    "path":"folders/Graph.yy",
+    "name":"GML-Graph",
+    "path":"folders/GML-Graph.yy",
   },
   "resourceType":"GMScript",
   "resourceVersion":"2.0",

@@ -2780,7 +2780,13 @@ function RunAllBenchmarks()
     return runner;
 }
 
-RunAllTests();
-
-//RunAllBenchmarks();
-game_end();
+var _test = new Graph(GraphFlags.GRAPH_DIRECTED | GraphFlags.GRAPH_ALLOW_SELF_LOOP);
+_test.AddEdge(0, 2);
+_test.AddEdge(0, 4);
+_test.AddEdge(0, 5);
+_test.AddEdge(1, 4);
+_test.AddEdge(1, 5);
+_test.AddEdge(2, 3);
+_test.AddEdge(2, 4);
+_test.AddEdge(4, 5);
+show_debug_message($"\n DENSITY : {_test.GetDensity() * 100} \n");
