@@ -571,9 +571,9 @@ function Graph(flags, builder = undefined) constructor
 			if (_visited_nodes[$ _node] != undefined)
 				continue ;
 			var _bfs_result = self.BFS(_node);
-			for (var j = 0; j < array_length(_bfs_result.visited); j++)
-				_visited_nodes[$ _bfs_result.visited[j]] = true;
-			array_push(self.__components_cache, _bfs_result.visited);
+			for (var j = 0; j < array_length(_bfs_result.path); j++)
+				_visited_nodes[$ _bfs_result.path[j]] = true;
+			array_push(self.__components_cache, _bfs_result.path);
 		}
 		self.__structure_dirty = false;
 		return (self.__components_cache);

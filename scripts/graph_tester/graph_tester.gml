@@ -154,7 +154,7 @@ function TestEmptyAndMinimalGraphs(runner)
 	
 	// Single node BFS
 	var bfs = g3.BFS("A");
-	runner.AssertArrayEquals(["A"], bfs.visited, "BFS on single node");
+	runner.AssertArrayEquals(["A"], bfs.path, "BFS on single node");
 	
 	// Single self-loop
 	var g4 = new Graph(GraphFlags.GRAPH_ALLOW_SELF_LOOP);
@@ -611,26 +611,26 @@ function TestBFS(runner)
 	
 	// Basic BFS from root
 	var result1 = g.BFS("A");
-	runner.AssertEquals(6, array_length(result1.visited), "BFS visits all reachable");
-	runner.AssertEquals("A", result1.visited[0], "BFS starts at source");
+	runner.AssertEquals(6, array_length(result1.path), "BFS visits all reachable");
+	runner.AssertEquals("A", result1.path[0], "BFS starts at source");
 	
 	// BFS with target
 	var result2 = g.BFS("A", "F");
-	runner.Assert(result2.visited[array_length(result2.visited) - 1] == "F", "BFS stops at target");
-	runner.Assert(array_length(result2.visited) <= 6, "BFS with target visits fewer nodes");
+	runner.Assert(result2.path[array_length(result2.path) - 1] == "F", "BFS stops at target");
+	runner.Assert(array_length(result2.path) <= 6, "BFS with target visits fewer nodes");
 
 	// BFS on disconnected graph
 	var g2 = new Graph(GraphFlags.GRAPH_NONE);
 	g2.AddEdge("A", "B");
 	g2.AddEdge("C", "D");
 	var result5 = g2.BFS("A");
-	runner.AssertEquals(2, array_length(result5.visited), "BFS on disconnected visits component only");
+	runner.AssertEquals(2, array_length(result5.path), "BFS on disconnected visits component only");
 	
 	// BFS on single node
 	var g3 = new Graph(GraphFlags.GRAPH_NONE);
 	g3.AddNode("A");
 	var result6 = g3.BFS("A");
-	runner.AssertEquals(1, array_length(result6.visited), "BFS on single node");
+	runner.AssertEquals(1, array_length(result6.path), "BFS on single node");
 	
 	// BFS on directed graph
 	var g4 = new Graph(GraphFlags.GRAPH_DIRECTED);
@@ -638,7 +638,7 @@ function TestBFS(runner)
 	g4.AddEdge("B", "C");
 	g4.AddEdge("C", "A");
 	var result7 = g4.BFS("A");
-	runner.AssertEquals(3, array_length(result7.visited), "BFS on directed cycle");
+	runner.AssertEquals(3, array_length(result7.path), "BFS on directed cycle");
 	
 	// BFS level order (breadth-first property)
 	var g5 = new Graph(GraphFlags.GRAPH_NONE);
@@ -648,9 +648,9 @@ function TestBFS(runner)
 	g5.AddEdge("C", "E");
 	var result8 = g5.BFS("A");
 	// Level 0: A, Level 1: B,C, Level 2: D,E
-	runner.AssertEquals("A", result8.visited[0], "BFS level 0");
-	runner.Assert(result8.visited[1] == "B" || result8.visited[1] == "C", "BFS level 1");
-	runner.Assert(result8.visited[2] == "B" || result8.visited[2] == "C", "BFS level 1");
+	runner.AssertEquals("A", result8.path[0], "BFS level 0");
+	runner.Assert(result8.path[1] == "B" || result8.path[1] == "C", "BFS level 1");
+	runner.Assert(result8.path[2] == "B" || result8.path[2] == "C", "BFS level 1");
 }
 
 /// @description Test path finding
@@ -2780,6 +2780,10 @@ function RunAllBenchmarks()
     return runner;
 }
 
+RunAllTests();
+
+/*
+var _test = new Graph(GraphFlags.GRAPH_DIRECTED | GraphFlags.GRAPH_ALLOW_SELF_LOOP);
 var _test = new Graph(GraphFlags.GRAPH_DIRECTED | GraphFlags.GRAPH_ALLOW_SELF_LOOP);
 _test.AddEdge(0, 2);
 _test.AddEdge(0, 4);
@@ -2789,4 +2793,4 @@ _test.AddEdge(1, 5);
 _test.AddEdge(2, 3);
 _test.AddEdge(2, 4);
 _test.AddEdge(4, 5);
-show_debug_message($"\n DENSITY : {_test.GetDensity() * 100} \n");
+show_debug_message($"\n DENSITY : {_test.GetDensity() * 100} \n");*/
