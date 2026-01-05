@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"graphs_builders",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"graphs_builders",
+  "parent":{
+    "name":"GML-Graph",
+    "path":"folders/GML-Graph.yy",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}

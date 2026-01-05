@@ -683,6 +683,40 @@ function Graph(flags, builder = undefined) constructor
 
 	#endregion
 
+	#region Export / Import
+
+	static ToDOT = function(name = "G")
+	{
+		var _buffer = buffer_create(2048, buffer_grow, 1);
+		var _directed = self.IsDirected();
+		var _weighted = self.IsWeighted();
+		var _operator = _directed ? "->" : "--";
+		buffer_write(_buffer, buffer_text, $"{_directed ? "digraph" : "graph"} {name} \{\n");
+		var _nodes = self.GetNodes();
+		for (var i = 0; i < array_length(_nodes); i++)
+		{
+			var _node = _nodes[i];
+			if (self.GetNeighborsCount(_node) == 0)
+				buffer_write(_buffer, buffer_text, $"	{_node};\n");
+		}
+		var _edges = self.GetEdges();
+		for (var i = 0; i < array_length(_edges); i++)
+		{
+			var _edge = _edges[i];
+			buffer_write(_buffer, buffer_text, $"	{_edge.from} {_operator} {_edge.to}");
+			if (_weighted)
+				buffer_write(_buffer, buffer_text, $" [weight={_edge.weight}]");
+			buffer_write(_buffer, buffer_text, ";\n");
+		}
+		buffer_write(_buffer, buffer_text, $"}\n");
+		buffer_seek(_buffer, buffer_seek_start, 0);
+		var _result = buffer_read(_buffer, buffer_string);
+		buffer_delete(_buffer);
+		return (_result);
+	}
+
+	#endregion
+
 	#region Graph Manipulation
 
 	/// @description Removes all nodes and edges from the graph (ignored if immutable)
@@ -1033,7 +1067,7 @@ function Graph(flags, builder = undefined) constructor
 	static __build__ = function(builder, args)
 	{
 		if (is_callable(builder))
-			builder();
+			builder(self, args);
 		if (is_struct(builder))
 		{
 			if (builder[$ "nodes"] != undefined)
@@ -1066,8 +1100,9 @@ function Graph(flags, builder = undefined) constructor
 	static __throw__ = function(error)
 	{
 		gml_pragma("forceinline");
-		var _msg = $"Error on Graph #{self.__graph_id}: {error}";
-		throw ({message: _msg, longMessage: _msg})
+		/*Didnt used string format because feather gave me strange errors for a reason :c*/
+		var _msg = "Error on Graph #" + string(self.__graph_id) + ": " + string(error);
+		throw ({message: _msg, longMessage: _msg});
 	}
 }
 

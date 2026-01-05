@@ -176,6 +176,295 @@ function TestEmptyAndMinimalGraphs(runner)
 	runner.AssertGraphConsistency(g5, "Isolated nodes graph");
 }
 
+/// @description Test DFS traversal functionality
+function TestDFS(runner)
+{
+	show_debug_message("\n=== Testing DFS Traversal ===");
+	
+	// Basic DFS on simple path graph
+	var g1 = new Graph(GraphFlags.GRAPH_NONE);
+	g1.AddEdges(["A", "B"], ["B", "C"], ["C", "D"]);
+	var dfs1 = g1.DFS("A");
+	runner.AssertArrayEquals(["A", "B", "C", "D"], dfs1.path, "DFS simple path");
+	runner.Assert(dfs1.visited[$ "D"], "DFS marks all nodes visited");
+	runner.AssertEquals("C", dfs1.previous[$ "D"], "DFS tracks previous correctly");
+	
+	// DFS with target
+	var dfs2 = g1.DFS("A", "C");
+	runner.Assert(array_length(dfs2.path) <= 4, "DFS stops at target");
+	runner.AssertEquals("C", array_last(dfs2.path), "DFS target is last element");
+	
+	// DFS on branching graph
+	var g2 = new Graph(GraphFlags.GRAPH_NONE);
+	g2.AddEdges(["A", "B"], ["A", "C"], ["B", "D"], ["C", "E"]);
+	var dfs3 = g2.DFS("A");
+	runner.AssertEquals(5, array_length(dfs3.path), "DFS visits all nodes in tree");
+	runner.AssertEquals("A", dfs3.path[0], "DFS starts at source");
+	
+	// DFS visit order should be depth-first (visit one branch fully before backtracking)
+	runner.Assert(dfs3.visited[$ "B"], "DFS visits all reachable nodes");
+	runner.Assert(dfs3.visited[$ "D"], "DFS visits deep nodes");
+	
+	// DFS on directed graph
+	var g3 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g3.AddEdges(["A", "B"], ["B", "C"], ["A", "D"]);
+	var dfs4 = g3.DFS("A");
+	runner.AssertEquals(4, array_length(dfs4.path), "DFS on directed graph");
+	runner.Assert(!g3.HasPath("C", "A"), "Directed graph no reverse path");
+	
+	// DFS with callback
+	var callback_state = {count: 0};
+	var callback = method(callback_state, function(node, prev) {
+		self.count++;
+	});
+	g1.DFS("A", undefined, callback);
+	runner.AssertEquals(4, callback_state.count, "DFS callback called for each node");
+	
+	// DFS on disconnected graph
+	var g4 = new Graph(GraphFlags.GRAPH_NONE);
+	g4.AddEdges(["A", "B"], ["C", "D"]);
+	var dfs5 = g4.DFS("A");
+	runner.AssertEquals(2, array_length(dfs5.path), "DFS only visits connected component");
+	runner.Assert(!dfs5.visited[$ "C"], "DFS doesn't visit disconnected nodes");
+	
+	// DFS on graph with cycle (undirected)
+	var g5 = new Graph(GraphFlags.GRAPH_NONE);
+	g5.AddEdges(["A", "B"], ["B", "C"], ["C", "A"]);
+	var dfs6 = g5.DFS("A");
+	runner.AssertEquals(3, array_length(dfs6.path), "DFS visits all nodes in cycle");
+	runner.Assert(dfs6.visited[$ "A"] && dfs6.visited[$ "B"] && dfs6.visited[$ "C"], "DFS marks cycle nodes visited");
+	
+	// DFS on single node
+	var g6 = new Graph(GraphFlags.GRAPH_NONE);
+	g6.AddNode("A");
+	var dfs7 = g6.DFS("A");
+	runner.AssertArrayEquals(["A"], dfs7.path, "DFS on single node");
+	
+	// DFS with self-loop
+	var g7 = new Graph(GraphFlags.GRAPH_ALLOW_SELF_LOOP);
+	g7.AddEdges(["A", "A"], ["A", "B"]);
+	var dfs8 = g7.DFS("A");
+	runner.AssertEquals(2, array_length(dfs8.path), "DFS handles self-loop");
+	
+	runner.AssertGraphConsistency(g1, "DFS graph 1");
+	runner.AssertGraphConsistency(g2, "DFS graph 2");
+	runner.AssertGraphConsistency(g3, "DFS graph 3");
+}
+
+/// @description Test cycle detection on undirected graphs
+function TestCycleDetectionUndirected(runner)
+{
+	show_debug_message("\n=== Testing Cycle Detection (Undirected) ===");
+	
+	// Acyclic path
+	var g1 = new Graph(GraphFlags.GRAPH_NONE);
+	g1.AddEdges(["A", "B"], ["B", "C"], ["C", "D"]);
+	runner.Assert(!g1.HasCycle(), "Simple path has no cycle");
+	runner.Assert(g1.IsAcyclic(), "Simple path is acyclic");
+	runner.Assert(!g1.IsCyclic(), "Simple path not cyclic");
+	runner.AssertEquals(undefined, g1.GetCycle(), "No cycle returns undefined");
+	
+	// Simple triangle cycle
+	var g2 = new Graph(GraphFlags.GRAPH_NONE);
+	g2.AddEdges(["A", "B"], ["B", "C"], ["C", "A"]);
+	runner.Assert(g2.HasCycle(), "Triangle has cycle");
+	runner.Assert(g2.IsCyclic(), "Triangle is cyclic");
+	runner.Assert(!g2.IsAcyclic(), "Triangle not acyclic");
+	var cycle2 = g2.GetCycle();
+	runner.Assert(is_array(cycle2), "GetCycle returns array for cycle");
+	runner.Assert(array_length(cycle2) >= 3, "Triangle cycle has at least 3 nodes");
+	runner.AssertEquals(cycle2[0], array_last(cycle2), "Cycle starts and ends at same node");
+	
+	// Square cycle
+	var g3 = new Graph(GraphFlags.GRAPH_NONE);
+	g3.AddEdges(["A", "B"], ["B", "C"], ["C", "D"], ["D", "A"]);
+	runner.Assert(g3.HasCycle(), "Square has cycle");
+	var cycle3 = g3.GetCycle();
+	runner.Assert(array_length(cycle3) >= 4, "Square cycle has at least 4 nodes");
+	
+	// Tree structure (no cycles)
+	var g4 = new Graph(GraphFlags.GRAPH_NONE);
+	g4.AddEdges(["A", "B"], ["A", "C"], ["B", "D"], ["B", "E"], ["C", "F"]);
+	runner.Assert(!g4.HasCycle(), "Tree has no cycle");
+	runner.Assert(g4.IsAcyclic(), "Tree is acyclic");
+	runner.AssertEquals(undefined, g4.GetCycle(), "Tree returns no cycle");
+	
+	// Graph with cycle and extra branches
+	var g5 = new Graph(GraphFlags.GRAPH_NONE);
+	g5.AddEdges(["A", "B"], ["B", "C"], ["C", "A"], ["A", "D"], ["D", "E"]);
+	runner.Assert(g5.HasCycle(), "Complex graph detects cycle");
+	var cycle5 = g5.GetCycle();
+	runner.Assert(is_array(cycle5), "Complex graph returns cycle");
+	
+	// Multiple disjoint cycles
+	var g6 = new Graph(GraphFlags.GRAPH_NONE);
+	g6.AddEdges(["A", "B"], ["B", "C"], ["C", "A"], ["D", "E"], ["E", "F"], ["F", "D"]);
+	runner.Assert(g6.HasCycle(), "Multiple cycles detected");
+	
+	// Self-loop is a cycle
+	var g7 = new Graph(GraphFlags.GRAPH_ALLOW_SELF_LOOP);
+	g7.AddEdge("A", "A");
+	runner.Assert(g7.HasCycle(), "Self-loop is a cycle");
+	var cycle7 = g7.GetCycle();
+	runner.Assert(is_array(cycle7), "Self-loop returns cycle");
+	
+	// Empty graph has no cycle
+	var g8 = new Graph(GraphFlags.GRAPH_NONE);
+	runner.Assert(!g8.HasCycle(), "Empty graph has no cycle");
+	
+	// Single node has no cycle
+	var g9 = new Graph(GraphFlags.GRAPH_NONE);
+	g9.AddNode("A");
+	runner.Assert(!g9.HasCycle(), "Single node has no cycle");
+	
+	runner.AssertGraphConsistency(g1, "Acyclic path");
+	runner.AssertGraphConsistency(g2, "Triangle cycle");
+	runner.AssertGraphConsistency(g4, "Tree structure");
+}
+
+/// @description Test cycle detection on directed graphs
+function TestCycleDetectionDirected(runner)
+{
+	show_debug_message("\n=== Testing Cycle Detection (Directed) ===");
+	
+	// Simple directed acyclic path
+	var g1 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g1.AddEdges(["A", "B"], ["B", "C"], ["C", "D"]);
+	runner.Assert(!g1.HasCycle(), "Directed path has no cycle");
+	runner.Assert(g1.IsAcyclic(), "Directed path is acyclic");
+	runner.Assert(g1.IsDAG(), "Directed acyclic path is DAG");
+	
+	// Simple directed cycle
+	var g2 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g2.AddEdges(["A", "B"], ["B", "C"], ["C", "A"]);
+	runner.Assert(g2.HasCycle(), "Directed triangle has cycle");
+	runner.Assert(!g2.IsDAG(), "Directed cycle is not DAG");
+	var cycle2 = g2.GetCycle();
+	runner.Assert(is_array(cycle2), "Directed cycle returns array");
+	runner.AssertEquals(cycle2[0], array_last(cycle2), "Directed cycle closes");
+	
+	// Directed graph with back edge
+	var g3 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g3.AddEdges(["A", "B"], ["B", "C"], ["C", "D"], ["D", "B"]);
+	runner.Assert(g3.HasCycle(), "Back edge creates cycle");
+	var cycle3 = g3.GetCycle();
+	runner.Assert(array_length(cycle3) >= 3, "Back edge cycle valid length");
+	
+	// DAG (topologically ordered)
+	var g4 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g4.AddEdges(["A", "B"], ["A", "C"], ["B", "D"], ["C", "D"]);
+	runner.Assert(!g4.HasCycle(), "DAG has no cycle");
+	runner.Assert(g4.IsDAG(), "Proper DAG detected");
+	runner.AssertEquals(undefined, g4.GetCycle(), "DAG returns no cycle");
+	
+	// Directed self-loop
+	var g5 = new Graph(GraphFlags.GRAPH_DIRECTED | GraphFlags.GRAPH_ALLOW_SELF_LOOP);
+	g5.AddEdge("A", "A");
+	runner.Assert(g5.HasCycle(), "Directed self-loop is cycle");
+	runner.Assert(!g5.IsDAG(), "Self-loop not a DAG");
+	
+	// Complex DAG (diamond structure)
+	var g6 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g6.AddEdges(["A", "B"], ["A", "C"], ["B", "D"], ["C", "D"], ["D", "E"]);
+	runner.Assert(!g6.HasCycle(), "Diamond DAG has no cycle");
+	runner.Assert(g6.IsDAG(), "Diamond structure is DAG");
+	
+	// Directed cycle with tail
+	var g7 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g7.AddEdges(["A", "B"], ["B", "C"], ["C", "B"], ["A", "D"]);
+	runner.Assert(g7.HasCycle(), "Cycle with tail detected");
+	
+	// Multiple components, one with cycle
+	var g8 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g8.AddEdges(["A", "B"], ["B", "C"], ["D", "E"], ["E", "F"], ["F", "D"]);
+	runner.Assert(g8.HasCycle(), "Cycle in one component detected");
+	
+	// Undirected would have cycle, directed does not
+	var g9 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g9.AddEdges(["A", "B"], ["B", "C"]);
+	runner.Assert(!g9.HasCycle(), "Directed path no cycle");
+	var g9_undirected = new Graph(GraphFlags.GRAPH_NONE);
+	g9_undirected.AddEdges(["A", "B"], ["B", "C"], ["C", "A"]);
+	runner.Assert(g9_undirected.HasCycle(), "Same edges undirected has cycle");
+	
+	// Large DAG
+	var g10 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	for (var i = 0; i < 10; i++) {
+		for (var j = i + 1; j < 10; j++) {
+			g10.AddEdge(string(i), string(j));
+		}
+	}
+	runner.Assert(!g10.HasCycle(), "Large complete DAG has no cycle");
+	runner.Assert(g10.IsDAG(), "Large graph is DAG");
+	
+	runner.AssertGraphConsistency(g1, "Directed acyclic path");
+	runner.AssertGraphConsistency(g2, "Directed cycle");
+	runner.AssertGraphConsistency(g4, "DAG");
+}
+
+/// @description Test edge cases and error handling
+function TestDFSAndCycleEdgeCases(runner)
+{
+	show_debug_message("\n=== Testing DFS & Cycle Edge Cases ===");
+	
+	// DFS on non-existent node
+	var g1 = new Graph(GraphFlags.GRAPH_NONE);
+	g1.AddNode("A");
+	var error_caught = false;
+	try {
+		g1.DFS("Z");
+	} catch (e) {
+		error_caught = true;
+	}
+	runner.Assert(error_caught, "DFS throws error on non-existent source");
+	
+	// DFS with non-existent target
+	error_caught = false;
+	try {
+		g1.DFS("A", "Z");
+	} catch (e) {
+		error_caught = true;
+	}
+	runner.Assert(error_caught, "DFS throws error on non-existent target");
+	
+	// HasCycle on empty graph
+	var g2 = new Graph(GraphFlags.GRAPH_NONE);
+	runner.Assert(!g2.HasCycle(), "Empty graph has no cycle");
+	
+	// GetCycle called multiple times
+	var g3 = new Graph(GraphFlags.GRAPH_NONE);
+	g3.AddEdges(["A", "B"], ["B", "C"], ["C", "A"]);
+	var cycle1 = g3.GetCycle();
+	var cycle2 = g3.GetCycle();
+	runner.Assert(is_array(cycle1) && is_array(cycle2), "GetCycle consistent");
+	
+	// IsDAG on undirected graph
+	var g4 = new Graph(GraphFlags.GRAPH_NONE);
+	g4.AddEdges(["A", "B"], ["B", "C"]);
+	runner.Assert(!g4.IsDAG(), "Undirected graph is not DAG");
+	
+	// Very long cycle
+	var g5 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	for (var i = 0; i < 100; i++) {
+		g5.AddEdge(string(i), string((i + 1) mod 100));
+	}
+	runner.Assert(g5.HasCycle(), "Long cycle detected");
+	var cycle5 = g5.GetCycle();
+	runner.Assert(array_length(cycle5) >= 10, "Long cycle returns valid length");
+	
+	// Cycle detection after modifications
+	var g6 = new Graph(GraphFlags.GRAPH_NONE);
+	g6.AddEdges(["A", "B"], ["B", "C"]);
+	runner.Assert(!g6.HasCycle(), "Initially no cycle");
+	g6.AddEdge("C", "A");
+	runner.Assert(g6.HasCycle(), "Cycle after adding edge");
+	g6.RemoveEdge("C", "A");
+	runner.Assert(!g6.HasCycle(), "No cycle after removing edge");
+	
+	runner.AssertGraphConsistency(g3, "Cycle graph");
+	runner.AssertGraphConsistency(g6, "Modified graph");
+}
+
 /// @description Test graph construction with builder patterns (IMPROVED)
 function TestGraphConstruction(runner)
 {
@@ -834,7 +1123,7 @@ function TestComponents(runner)
 	g4.AddEdge("C", "D");
 	runner.Assert(!g4.IsConnected(), "Directed disconnected");
 	runner.AssertEquals(2, g4.GetComponentsCount(), "Two weak components");
-	
+
 	// Component cache invalidation
 	var g5 = new Graph(GraphFlags.GRAPH_NONE);
 	g5.AddEdge("A", "B");
@@ -1276,7 +1565,10 @@ function RunAllTests()
 	TestComplexStructures(runner);
 	TestEdgeCases(runner);
 	TestMixedTypes(runner);
-
+	TestDFS(runner);
+	TestCycleDetectionUndirected(runner);
+	TestCycleDetectionDirected(runner);
+	TestDFSAndCycleEdgeCases(runner);
 	TestWeightOperations(runner);
 	TestCacheManagement(runner);
 	TestEdgeCountUndirected(runner);
@@ -2505,161 +2797,426 @@ function BenchmarkStressTestDijkstra(runner)
     runner.AddResult($"Stress Test: Dijkstra on Dense Graph ({node_count} nodes)", elapsed, 1);
 }
 
-/// @description IMPROVED: Benchmark cache performance
-function BenchmarkCachePerformance(runner)
+/// @description Benchmark DFS traversal on linear path
+function BenchmarkDFSLinearPath(runner, node_count, iterations)
 {
-	show_debug_message("\n=== CACHE PERFORMANCE BENCHMARKS ===");
-	
-	// Setup large graph
+	// Build linear path graph
 	var g = new Graph(GraphFlags.GRAPH_NONE);
-	for (var i = 0; i < 1000; i++)
-		g.AddEdge(i, i + 1);
+	for (var i = 0; i < node_count - 1; i++)
+		g.AddEdge(string(i), string(i + 1));
 	
-	// First GetNodes call (cache miss)
-	var timer1 = new BenchmarkTimer();
-	timer1.Start();
-	var nodes1 = g.GetNodes();
-	var time1 = timer1.Stop();
-	runner.AddResult("GetNodes - First Call (Cache Miss)", time1, 1);
+	var timer = new BenchmarkTimer();
+	timer.Start();
 	
-	// Subsequent GetNodes calls (cache hit)
-	var timer2 = new BenchmarkTimer();
-	timer2.Start();
-	for (var i = 0; i < 10000; i++)
-		var nodes_cached = g.GetNodes();
-	var time2 = timer2.Stop();
-	runner.AddResult("GetNodes - Cached (10k calls)", time2, 10000);
+	for (var i = 0; i < iterations; i++)
+	{
+		var result = g.DFS("0");
+	}
 	
-	// GetEdges cache miss
-	var timer3 = new BenchmarkTimer();
-	timer3.Start();
-	var edges1 = g.GetEdges();
-	var time3 = timer3.Stop();
-	runner.AddResult("GetEdges - First Call (Cache Miss, 1000 edges)", time3, 1);
-	
-	// GetEdges cache hit
-	var timer4 = new BenchmarkTimer();
-	timer4.Start();
-	for (var i = 0; i < 1000; i++)
-		var edges_cached = g.GetEdges();
-	var time4 = timer4.Stop();
-	runner.AddResult("GetEdges - Cached (1k calls)", time4, 1000);
-	
-	// Component cache
-	var timer5 = new BenchmarkTimer();
-	timer5.Start();
-	var comps1 = g.GetComponents();
-	var time5 = timer5.Stop();
-	runner.AddResult("GetComponents - First Call", time5, 1);
-	
-	var timer6 = new BenchmarkTimer();
-	timer6.Start();
-	for (var i = 0; i < 1000; i++)
-		var comps_cached = g.GetComponents();
-	var time6 = timer6.Stop();
-	runner.AddResult("GetComponents - Cached (1k calls)", time6, 1000);
+	var elapsed = timer.Stop();
+	runner.AddResult($"DFS Linear Path ({node_count} nodes)", elapsed, iterations);
 }
 
-/// @description IMPROVED: Benchmark directed vs undirected performance
-function BenchmarkDirectedVsUndirected(runner)
+/// @description Benchmark DFS traversal on tree structure
+function BenchmarkDFSTree(runner, depth, branching_factor, iterations)
 {
-	show_debug_message("\n=== DIRECTED VS UNDIRECTED PERFORMANCE ===");
+	// Build balanced tree
+	var g = new Graph(GraphFlags.GRAPH_NONE);
+	var node_id = 0;
+	var queue = ["0"];
+	var current_depth = 0;
 	
-	var edge_count = 1000;
+	while (array_length(queue) > 0 && current_depth < depth)
+	{
+		var next_queue = [];
+		for (var i = 0; i < array_length(queue); i++)
+		{
+			var parent = queue[i];
+			for (var j = 0; j < branching_factor; j++)
+			{
+				node_id++;
+				var child = string(node_id);
+				g.AddEdge(parent, child);
+				array_push(next_queue, child);
+			}
+		}
+		queue = next_queue;
+		current_depth++;
+	}
 	
-	// Undirected - adds bidirectional edges
-	var timer1 = new BenchmarkTimer();
-	timer1.Start();
-	var g_undirected = new Graph(GraphFlags.GRAPH_NONE);
-	for (var i = 0; i < edge_count; i++)
-		g_undirected.AddEdge(i, i + 1);
-	var time1 = timer1.Stop();
-	runner.AddResult($"Build Undirected Graph ({edge_count} edges)", time1, edge_count);
+	var timer = new BenchmarkTimer();
+	timer.Start();
 	
-	// Directed - adds single direction
-	var timer2 = new BenchmarkTimer();
-	timer2.Start();
-	var g_directed = new Graph(GraphFlags.GRAPH_DIRECTED);
-	for (var i = 0; i < edge_count; i++)
-		g_directed.AddEdge(i, i + 1);
-	var time2 = timer2.Stop();
-	runner.AddResult($"Build Directed Graph ({edge_count} edges)", time2, edge_count);
+	for (var i = 0; i < iterations; i++)
+	{
+		var result = g.DFS("0");
+	}
 	
-	// HasEdge performance
-	var timer3 = new BenchmarkTimer();
-	timer3.Start();
-	for (var i = 0; i < 10000; i++)
-		g_undirected.HasEdge(500, 501);
-	var time3 = timer3.Stop();
-	runner.AddResult("HasEdge Undirected (10k calls)", time3, 10000);
-	
-	var timer4 = new BenchmarkTimer();
-	timer4.Start();
-	for (var i = 0; i < 10000; i++)
-		g_directed.HasEdge(500, 501);
-	var time4 = timer4.Stop();
-	runner.AddResult("HasEdge Directed (10k calls)", time4, 10000);
-	
-	// GetInDegree performance difference
-	var timer5 = new BenchmarkTimer();
-	timer5.Start();
-	for (var i = 100; i < 200; i++)
-		g_undirected.GetInDegree(i);
-	var time5 = timer5.Stop();
-	runner.AddResult("GetInDegree Undirected (100 nodes)", time5, 100);
-	
-	var timer6 = new BenchmarkTimer();
-	timer6.Start();
-	for (var i = 100; i < 200; i++)
-		g_directed.GetInDegree(i);
-	var time6 = timer6.Stop();
-	runner.AddResult("GetInDegree Directed (100 nodes) - Requires iteration", time6, 100);
+	var elapsed = timer.Stop();
+	runner.AddResult($"DFS Tree (depth={depth}, branch={branching_factor})", elapsed, iterations);
 }
 
-/// @description IMPROVED: Benchmark structure modification impact
-function BenchmarkStructureModification(runner)
+/// @description Benchmark DFS with early termination (target found)
+function BenchmarkDFSWithTarget(runner, node_count, target_position, iterations)
 {
-	show_debug_message("\n=== STRUCTURE MODIFICATION IMPACT ===");
-	
-	// Measure cost of cache invalidation
+	// Build linear path
 	var g = new Graph(GraphFlags.GRAPH_NONE);
-	for (var i = 0; i < 500; i++)
-		g.AddEdge(i, i + 1);
+	for (var i = 0; i < node_count - 1; i++)
+		g.AddEdge(string(i), string(i + 1));
 	
-	// Pre-populate all caches
-	g.GetNodes();
-	g.GetEdges();
-	g.GetComponents();
+	var target = string(target_position);
 	
-	// Add single edge and measure cache rebuild cost
-	var timer1 = new BenchmarkTimer();
-	timer1.Start();
-	g.AddEdge(1000, 1001);
-	g.GetNodes(); // Force node cache rebuild
-	g.GetEdges(); // Force edge cache rebuild
-	g.GetComponents(); // Force component cache rebuild
-	var time1 = timer1.Stop();
-	runner.AddResult("Cache Rebuild After Single Edge Add", time1, 1);
+	var timer = new BenchmarkTimer();
+	timer.Start();
 	
-	// Remove edge impact
-	var timer2 = new BenchmarkTimer();
-	timer2.Start();
-	g.RemoveEdge(250, 251);
-	g.GetNodes();
-	g.GetEdges();
-	g.GetComponents();
-	var time2 = timer2.Stop();
-	runner.AddResult("Cache Rebuild After Single Edge Remove", time2, 1);
+	for (var i = 0; i < iterations; i++)
+	{
+		var result = g.DFS("0", target);
+	}
 	
-	// Node removal impact (heavier)
-	var timer3 = new BenchmarkTimer();
-	timer3.Start();
-	g.RemoveNode(400);
-	g.GetNodes();
-	g.GetEdges();
-	g.GetComponents();
-	var time3 = timer3.Stop();
-	runner.AddResult("Cache Rebuild After Node Remove", time3, 1);
+	var elapsed = timer.Stop();
+	runner.AddResult($"DFS Early Stop (target at {target_position}/{node_count})", elapsed, iterations);
+}
+
+/// @description Benchmark DFS on dense graph
+function BenchmarkDFSDenseGraph(runner, node_count, iterations)
+{
+	// Build complete graph (all nodes connected)
+	var g = new Graph(GraphFlags.GRAPH_NONE);
+	for (var i = 0; i < node_count; i++)
+	{
+		for (var j = i + 1; j < node_count; j++)
+		{
+			g.AddEdge(string(i), string(j));
+		}
+	}
+	
+	var timer = new BenchmarkTimer();
+	timer.Start();
+	
+	for (var i = 0; i < iterations; i++)
+	{
+		var result = g.DFS("0");
+	}
+	
+	var elapsed = timer.Stop();
+	runner.AddResult($"DFS Dense Graph ({node_count} nodes, complete)", elapsed, iterations);
+}
+
+/// @description Benchmark DFS on directed vs undirected graph
+function BenchmarkDFSDirectedVsUndirected(runner, node_count, iterations)
+{
+	// Build directed path
+	var g_dir = new Graph(GraphFlags.GRAPH_DIRECTED);
+	for (var i = 0; i < node_count - 1; i++)
+		g_dir.AddEdge(string(i), string(i + 1));
+	
+	// Build undirected path
+	var g_undir = new Graph(GraphFlags.GRAPH_NONE);
+	for (var i = 0; i < node_count - 1; i++)
+		g_undir.AddEdge(string(i), string(i + 1));
+	
+	// Benchmark directed
+	var timer = new BenchmarkTimer();
+	timer.Start();
+	for (var i = 0; i < iterations; i++)
+		g_dir.DFS("0");
+	var elapsed_dir = timer.Stop();
+	runner.AddResult($"DFS Directed ({node_count} nodes)", elapsed_dir, iterations);
+	
+	// Benchmark undirected
+	timer.Start();
+	for (var i = 0; i < iterations; i++)
+		g_undir.DFS("0");
+	var elapsed_undir = timer.Stop();
+	runner.AddResult($"DFS Undirected ({node_count} nodes)", elapsed_undir, iterations);
+}
+
+/// @description Benchmark HasCycle on acyclic graphs
+function BenchmarkHasCycleAcyclic(runner, node_count, iterations)
+{
+	// Build tree (guaranteed acyclic)
+	var g = new Graph(GraphFlags.GRAPH_NONE);
+	for (var i = 1; i < node_count; i++)
+		g.AddEdge(string(floor(i / 2)), string(i));
+	
+	var timer = new BenchmarkTimer();
+	timer.Start();
+	
+	for (var i = 0; i < iterations; i++)
+	{
+		var has_cycle = g.HasCycle();
+	}
+	
+	var elapsed = timer.Stop();
+	runner.AddResult($"HasCycle Acyclic Tree ({node_count} nodes)", elapsed, iterations);
+}
+
+/// @description Benchmark HasCycle on cyclic graphs
+function BenchmarkHasCycleCyclic(runner, node_count, iterations)
+{
+	// Build graph with early cycle
+	var g = new Graph(GraphFlags.GRAPH_NONE);
+	g.AddEdges(["0", "1"], ["1", "2"], ["2", "0"]); // Early cycle
+	for (var i = 3; i < node_count; i++)
+		g.AddEdge(string(i - 1), string(i));
+	
+	var timer = new BenchmarkTimer();
+	timer.Start();
+	
+	for (var i = 0; i < iterations; i++)
+	{
+		var has_cycle = g.HasCycle();
+	}
+	
+	var elapsed = timer.Stop();
+	runner.AddResult($"HasCycle Early Cycle ({node_count} nodes)", elapsed, iterations);
+}
+
+/// @description Benchmark HasCycle with late cycle
+function BenchmarkHasCycleLateCycle(runner, node_count, iterations)
+{
+	// Build graph with cycle at the end
+	var g = new Graph(GraphFlags.GRAPH_NONE);
+	for (var i = 0; i < node_count - 3; i++)
+		g.AddEdge(string(i), string(i + 1));
+	// Add cycle at end
+	var last = string(node_count - 3);
+	g.AddEdges([last, string(node_count - 2)], [string(node_count - 2), string(node_count - 1)], [string(node_count - 1), last]);
+	
+	var timer = new BenchmarkTimer();
+	timer.Start();
+	
+	for (var i = 0; i < iterations; i++)
+	{
+		var has_cycle = g.HasCycle();
+	}
+	
+	var elapsed = timer.Stop();
+	runner.AddResult($"HasCycle Late Cycle ({node_count} nodes)", elapsed, iterations);
+}
+
+/// @description Benchmark GetCycle on graphs with cycles
+function BenchmarkGetCycle(runner, cycle_size, iterations)
+{
+	// Build simple cycle
+	var g = new Graph(GraphFlags.GRAPH_NONE);
+	for (var i = 0; i < cycle_size - 1; i++)
+		g.AddEdge(string(i), string(i + 1));
+	g.AddEdge(string(cycle_size - 1), "0"); // Close the cycle
+	
+	var timer = new BenchmarkTimer();
+	timer.Start();
+	
+	for (var i = 0; i < iterations; i++)
+	{
+		var cycle = g.GetCycle();
+	}
+	
+	var elapsed = timer.Stop();
+	runner.AddResult($"GetCycle ({cycle_size}-node cycle)", elapsed, iterations);
+}
+
+/// @description Benchmark IsDAG on directed acyclic graphs
+function BenchmarkIsDAG(runner, node_count, iterations)
+{
+	// Build DAG (topologically ordered)
+	var g = new Graph(GraphFlags.GRAPH_DIRECTED);
+	for (var i = 0; i < node_count; i++)
+	{
+		for (var j = i + 1; j < min(i + 5, node_count); j++)
+		{
+			g.AddEdge(string(i), string(j));
+		}
+	}
+	
+	var timer = new BenchmarkTimer();
+	timer.Start();
+	
+	for (var i = 0; i < iterations; i++)
+	{
+		var is_dag = g.IsDAG();
+	}
+	
+	var elapsed = timer.Stop();
+	runner.AddResult($"IsDAG True ({node_count} nodes)", elapsed, iterations);
+}
+
+/// @description Benchmark IsDAG on graphs with cycles
+function BenchmarkIsDAGWithCycle(runner, node_count, iterations)
+{
+	// Build directed graph with cycle
+	var g = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g.AddEdges(["0", "1"], ["1", "2"], ["2", "0"]); // Cycle
+	for (var i = 3; i < node_count; i++)
+		g.AddEdge(string(i - 1), string(i));
+	
+	var timer = new BenchmarkTimer();
+	timer.Start();
+	
+	for (var i = 0; i < iterations; i++)
+	{
+		var is_dag = g.IsDAG();
+	}
+	
+	var elapsed = timer.Stop();
+	runner.AddResult($"IsDAG False ({node_count} nodes)", elapsed, iterations);
+}
+
+/// @description Benchmark cycle detection on directed vs undirected graphs
+function BenchmarkCycleDirectedVsUndirected(runner, node_count, iterations)
+{
+	// Directed cyclic graph
+	var g_dir = new Graph(GraphFlags.GRAPH_DIRECTED);
+	for (var i = 0; i < node_count - 1; i++)
+		g_dir.AddEdge(string(i), string(i + 1));
+	g_dir.AddEdge(string(node_count - 1), "0");
+	
+	// Undirected cyclic graph
+	var g_undir = new Graph(GraphFlags.GRAPH_NONE);
+	for (var i = 0; i < node_count - 1; i++)
+		g_undir.AddEdge(string(i), string(i + 1));
+	g_undir.AddEdge(string(node_count - 1), "0");
+	
+	// Benchmark directed
+	var timer = new BenchmarkTimer();
+	timer.Start();
+	for (var i = 0; i < iterations; i++)
+		g_dir.HasCycle();
+	var elapsed_dir = timer.Stop();
+	runner.AddResult($"HasCycle Directed Cycle ({node_count} nodes)", elapsed_dir, iterations);
+	
+	// Benchmark undirected
+	timer.Start();
+	for (var i = 0; i < iterations; i++)
+		g_undir.HasCycle();
+	var elapsed_undir = timer.Stop();
+	runner.AddResult($"HasCycle Undirected Cycle ({node_count} nodes)", elapsed_undir, iterations);
+}
+
+/// @description Benchmark DFS with callback overhead
+function BenchmarkDFSCallback(runner, node_count, iterations)
+{
+	// Build linear path
+	var g = new Graph(GraphFlags.GRAPH_NONE);
+	for (var i = 0; i < node_count - 1; i++)
+		g.AddEdge(string(i), string(i + 1));
+	
+	var callback_state = {dummy: 0};
+	var callback = method(callback_state, function(node, prev) {
+		self.dummy = node;
+	});
+	
+	// Benchmark without callback
+	var timer = new BenchmarkTimer();
+	timer.Start();
+	for (var i = 0; i < iterations; i++)
+		g.DFS("0");
+	var elapsed_no_cb = timer.Stop();
+	runner.AddResult($"DFS No Callback ({node_count} nodes)", elapsed_no_cb, iterations);
+	
+	// Benchmark with callback
+	timer.Start();
+	for (var i = 0; i < iterations; i++)
+		g.DFS("0", undefined, callback);
+	var elapsed_with_cb = timer.Stop();
+	runner.AddResult($"DFS With Callback ({node_count} nodes)", elapsed_with_cb, iterations);
+}
+
+/// @description Benchmark cycle detection on sparse vs dense graphs
+function BenchmarkCycleSparseVsDense(runner, node_count, iterations)
+{
+	// Sparse graph (tree + one edge for cycle)
+	var g_sparse = new Graph(GraphFlags.GRAPH_NONE);
+	for (var i = 1; i < node_count; i++)
+		g_sparse.AddEdge(string(floor(i / 2)), string(i));
+	g_sparse.AddEdge("0", string(node_count - 1)); // Add cycle
+	
+	// Dense graph (many edges)
+	var g_dense = new Graph(GraphFlags.GRAPH_NONE);
+	for (var i = 0; i < node_count; i++)
+	{
+		for (var j = i + 1; j < min(i + 10, node_count); j++)
+		{
+			g_dense.AddEdge(string(i), string(j));
+		}
+	}
+	
+	// Benchmark sparse
+	var timer = new BenchmarkTimer();
+	timer.Start();
+	for (var i = 0; i < iterations; i++)
+		g_sparse.HasCycle();
+	var elapsed_sparse = timer.Stop();
+	runner.AddResult($"HasCycle Sparse ({node_count} nodes)", elapsed_sparse, iterations);
+	
+	// Benchmark dense
+	timer.Start();
+	for (var i = 0; i < iterations; i++)
+		g_dense.HasCycle();
+	var elapsed_dense = timer.Stop();
+	runner.AddResult($"HasCycle Dense ({node_count} nodes)", elapsed_dense, iterations);
+}
+
+/// @description Run all DFS benchmarks
+function BenchmarkDFS(runner)
+{
+	show_debug_message("\n=== DFS TRAVERSAL BENCHMARKS ===");
+	
+	BenchmarkDFSLinearPath(runner, 100, 1000);
+	BenchmarkDFSLinearPath(runner, 500, 200);
+	BenchmarkDFSLinearPath(runner, 1000, 100);
+	
+	BenchmarkDFSTree(runner, 5, 3, 500);  // 3^5 = 243 nodes
+	BenchmarkDFSTree(runner, 7, 2, 200);  // 2^7 = 127 nodes
+	
+	BenchmarkDFSWithTarget(runner, 1000, 100, 500);
+	BenchmarkDFSWithTarget(runner, 1000, 900, 500);
+	
+	BenchmarkDFSDenseGraph(runner, 50, 100);
+	BenchmarkDFSDenseGraph(runner, 100, 20);
+	
+	BenchmarkDFSDirectedVsUndirected(runner, 500, 200);
+	
+	BenchmarkDFSCallback(runner, 500, 200);
+}
+
+/// @description Run all cycle detection benchmarks
+function BenchmarkCycleDetection(runner)
+{
+	show_debug_message("\n=== CYCLE DETECTION BENCHMARKS ===");
+	
+	BenchmarkHasCycleAcyclic(runner, 100, 500);
+	BenchmarkHasCycleAcyclic(runner, 500, 100);
+	BenchmarkHasCycleAcyclic(runner, 1000, 50);
+	
+	BenchmarkHasCycleCyclic(runner, 100, 500);
+	BenchmarkHasCycleCyclic(runner, 500, 100);
+	
+	BenchmarkHasCycleLateCycle(runner, 100, 500);
+	BenchmarkHasCycleLateCycle(runner, 500, 100);
+	
+	BenchmarkGetCycle(runner, 10, 1000);
+	BenchmarkGetCycle(runner, 50, 500);
+	BenchmarkGetCycle(runner, 100, 200);
+	
+	BenchmarkCycleDirectedVsUndirected(runner, 100, 500);
+	BenchmarkCycleDirectedVsUndirected(runner, 500, 100);
+	
+	BenchmarkCycleSparseVsDense(runner, 100, 200);
+}
+
+/// @description Run all DAG benchmarks
+function BenchmarkDAG(runner)
+{
+	show_debug_message("\n=== DAG BENCHMARKS ===");
+	
+	BenchmarkIsDAG(runner, 100, 500);
+	BenchmarkIsDAG(runner, 500, 100);
+	BenchmarkIsDAG(runner, 1000, 50);
+	
+	BenchmarkIsDAGWithCycle(runner, 100, 500);
+	BenchmarkIsDAGWithCycle(runner, 500, 100);
 }
 
 /// @description IMPROVED: Realistic graph patterns
@@ -2756,11 +3313,11 @@ function RunAllBenchmarks()
     BenchmarkStressTestBFS(runner);
     BenchmarkStressTestDijkstra(runner);
 	
-	BenchmarkCachePerformance(runner);
-	BenchmarkDirectedVsUndirected(runner);
-	BenchmarkStructureModification(runner);
+	BenchmarkDFS(runner);
+	BenchmarkCycleDetection(runner);
+	BenchmarkDAG(runner);
 	BenchmarkRealisticPatterns(runner);
-    
+	
     // Print final summary
     runner.PrintSummary();
     
@@ -2780,17 +3337,4 @@ function RunAllBenchmarks()
     return runner;
 }
 
-RunAllTests();
-
-/*
-var _test = new Graph(GraphFlags.GRAPH_DIRECTED | GraphFlags.GRAPH_ALLOW_SELF_LOOP);
-var _test = new Graph(GraphFlags.GRAPH_DIRECTED | GraphFlags.GRAPH_ALLOW_SELF_LOOP);
-_test.AddEdge(0, 2);
-_test.AddEdge(0, 4);
-_test.AddEdge(0, 5);
-_test.AddEdge(1, 4);
-_test.AddEdge(1, 5);
-_test.AddEdge(2, 3);
-_test.AddEdge(2, 4);
-_test.AddEdge(4, 5);
-show_debug_message($"\n DENSITY : {_test.GetDensity() * 100} \n");*/
+RunAllTests()
