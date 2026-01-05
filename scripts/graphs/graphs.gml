@@ -42,9 +42,6 @@ function Graph(flags, builder = undefined) constructor
 	self.__edge_cache = undefined;
 	self.__edge_dirty = true;
 
-	self.__node_cache = undefined;
-	self.__node_dirty = true;
-
 	self.__structure_dirty = true;
 	self.__components_cache = undefined;
 
@@ -315,6 +312,12 @@ function Graph(flags, builder = undefined) constructor
 		return (self.__flags & GraphFlags.GRAPH_WEIGHTED) != 0;
 	}
 
+	static IsSelfLoopable = function()
+	{
+		gml_pragma("forceinline");
+		return (self.__flags & GraphFlags.GRAPH_ALLOW_SELF_LOOP) != 0;
+	}
+
 	/// @description Checks if a node exists in the graph
 	/// @param {Any} node The node to check
 	/// @return {Bool} Returns true if node exists, false otherwise
@@ -373,7 +376,22 @@ function Graph(flags, builder = undefined) constructor
 	static IsDAG = function()
 	{
 		gml_pragma("forceinline");
-		return (self.IsDirected() && self.IsAcyclic())
+		return (self.IsDirected() && self.IsAcyclic());
+	}
+
+	static IsTree = function()
+	{
+		gml_pragma("forceinline");
+		return (self.IsDirected() ? self.IsDAG() : self.IsConnected() && self.IsAcyclic());
+	}
+
+	static IsComplete = function()
+	{
+		gml_pragma("forceinline");
+		var n = self.GetNodeCount();
+		if (n == 0)
+			return (false);
+		return (self.GetEdgeCount() == n * (self.__flags & GraphFlags.GRAPH_ALLOW_SELF_LOOP ? n : n - 1) * 0.5);
 	}
 
 	#endregion
@@ -429,12 +447,7 @@ function Graph(flags, builder = undefined) constructor
 	static GetNodes = function()
 	{
 		gml_pragma("forceinline");
-		if (self.__node_dirty)
-		{
-			self.__node_dirty = false;
-			self.__node_cache = variable_struct_get_names(self.__graph);
-		}
-		return (self.__node_cache);
+		return (variable_struct_get_names(self.__graph));
 	}
 
 	/// @description Gets all neighbors (adjacent nodes) of a given node
@@ -453,7 +466,7 @@ function Graph(flags, builder = undefined) constructor
 	static GetEdges = function()
 	{
 		if (!self.__edge_dirty)
-			return (self.__edge_cache);
+			return (variable_clone(self.__edge_cache));
 		self.__edge_cache = [];
 		var _nodes = self.GetNodes();
 		for (var i = 0; i < array_length(_nodes); i++)
@@ -469,7 +482,7 @@ function Graph(flags, builder = undefined) constructor
 			}
 		}
 		self.__edge_dirty = false;
-		return (self.__edge_cache);
+		return (variable_clone(self.__edge_cache));
 	}
 
 	/// @description Gets the total number of nodes in the graph
@@ -681,6 +694,35 @@ function Graph(flags, builder = undefined) constructor
 		return (undefined);
 	}
 
+	static GetRandomNode = function()
+	{
+		gml_pragma("forceinline");
+		return (self.GetNodes()[irandom(self.GetNodeCount())]);
+	}
+
+	static GetRandomEdge = function()
+	{
+		gml_pragma("forceinline");
+		return (self.GetEdges()[irandom(self.GetEdgeCount())]);
+	}
+
+	static GetDebugID = function()
+	{
+		gml_pragma("forceinline");
+		return (self.__graph_id);
+	}
+
+	static GetReversed = function()
+	{
+		gml_pragma("forceinline");
+		if (!self.IsDirected())
+			self.__throw__("Can't reverse an undirected graph");
+		var _reversed = self.Clone(true).Reverse();
+		if (self.IsImmutable())
+			_reversed.Freeze();
+		return (_reversed);
+	}
+
 	#endregion
 
 	#region Export / Import
@@ -715,9 +757,42 @@ function Graph(flags, builder = undefined) constructor
 		return (_result);
 	}
 
+	static ToAdjacencyMatrix = function()
+	{
+		var _nodes = self.GetNodes();
+		array_sort(_nodes, true);
+		var _array_y = array_create(self.__node_count);
+		for (var _y = 0; _y < self.__node_count; _y++)
+		{
+			var _array_x = array_create(self.__node_count);
+			for (var _x = 0; _x < self.__node_count; _x++)
+				_array_x[_x] = self.HasEdge(_x, _y);
+			_array_y[_y] = _array_x;
+		}
+		return (_array_y);
+	}
+
 	#endregion
 
 	#region Graph Manipulation
+
+	static Reverse = function()
+	{
+		if (self.IsImmutable())
+			return (self);
+		if (!self.IsDirected())
+			self.__throw__("Can't reverse an undirected graph");
+		var _edges = self.GetEdges();
+		self.Clear();
+		for (var i = 0; i < array_length(_edges); i++)
+		{
+			var _edge = _edges[i];
+			self.AddEdge(_edge.to, _edge.from, _edge.weight);
+		}
+		self.__edge_dirty = true;
+	    self.__structure_dirty = true;
+		return (self);
+	}
 
 	/// @description Removes all nodes and edges from the graph (ignored if immutable)
 	/// @return {Struct.self} Returns self for method chaining
@@ -728,10 +803,8 @@ function Graph(flags, builder = undefined) constructor
 			self.__graph = {};
 			self.__edge_count = 0;
 			self.__node_count = 0;
-			self.__node_dirty = true;
 			self.__edge_dirty = true;
 			self.__structure_dirty = true;
-			self.__node_cache = undefined;
 			self.__edge_cache = undefined;
 		}
 		return (self);
@@ -747,7 +820,6 @@ function Graph(flags, builder = undefined) constructor
 			return (self);
 		if (!is_struct(graph) || !is_instanceof(graph, Graph)) 
 			self.__throw__("Graph copy failed, not a graph.");
-		// Not optimal
 		var _keys = struct_get_names(graph);
 		for (var j = 0; j < array_length(_keys); j++)
 		{
@@ -761,7 +833,6 @@ function Graph(flags, builder = undefined) constructor
 		}
 		if (unfreeze)
 			self.__flags &= ~GraphFlags.GRAPH_IMMUTABLE;
-		self.__node_dirty = true;
 		self.__edge_dirty = true;
 		self.__graph_id = Graph.__graph_count++;
 
@@ -834,7 +905,6 @@ function Graph(flags, builder = undefined) constructor
 		variable_struct_remove(self.__graph, node);
 		self.__node_count--;
 		self.__structure_dirty = true;
-		self.__node_dirty = true;
 		self.__edge_dirty = true;
 		return (self);
 	}
@@ -953,7 +1023,6 @@ function Graph(flags, builder = undefined) constructor
 			self.__graph[$ node] = {};
 			self.__node_count++;
 			self.__structure_dirty = true;
-			self.__node_dirty = true;
 		}
 		return (self);
 	}
