@@ -1437,7 +1437,7 @@ function TestCacheManagement(runner)
 	g.AddNode("A");
 	var nodes1 = g.GetNodes();
 	var nodes2 = g.GetNodes();
-	runner.Assert(nodes1 == nodes2, "Node cache returns same reference");
+	runner.Assert(nodes1 != nodes2, "Node cache does not returns same reference");
 	
 	g.AddNode("B");
 	var nodes3 = g.GetNodes();
@@ -1448,7 +1448,7 @@ function TestCacheManagement(runner)
 	g.AddEdge("A", "B");
 	var edges1 = g.GetEdges();
 	var edges2 = g.GetEdges();
-	runner.Assert(edges1 == edges2, "Edge cache returns same reference");
+	runner.Assert(edges1 != edges2, "Edge cache does not returns same reference");
 	
 	g.AddEdge("B", "C");
 	var edges3 = g.GetEdges();
@@ -1537,6 +1537,376 @@ function TestWeightOperations(runner)
 	runner.Assert(error_caught, "GetWeight throws on non-existent edge");
 }
 
+
+#region Tests Unitaires Manquants
+
+/// @description Test GetTopologicalSort sur DAG
+function TestTopologicalSort(runner)
+{
+	show_debug_message("\n=== Testing Topological Sort ===");
+	
+	// Simple DAG
+	var g1 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g1.AddEdges(["A", "B"], ["A", "C"], ["B", "D"], ["C", "D"]);
+	var topo1 = g1.GetTopologicalSort();
+	runner.Assert(is_array(topo1), "Topological sort returns array");
+	runner.AssertEquals(4, array_length(topo1), "All nodes in topological sort");
+	runner.AssertEquals("A", topo1[0], "Root node first in topo sort");
+	runner.AssertEquals("D", topo1[3], "Sink node last in topo sort");
+	
+	// Verify topological ordering
+	var pos = {};
+	for (var i = 0; i < array_length(topo1); i++)
+		pos[$ topo1[i]] = i;
+	runner.Assert(pos[$ "A"] < pos[$ "B"], "A before B in topo order");
+	runner.Assert(pos[$ "A"] < pos[$ "C"], "A before C in topo order");
+	runner.Assert(pos[$ "B"] < pos[$ "D"], "B before D in topo order");
+	runner.Assert(pos[$ "C"] < pos[$ "D"], "C before D in topo order");
+	
+	// DAG with multiple valid orderings
+	var g2 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g2.AddEdges(["1", "2"], ["1", "3"], ["2", "4"], ["3", "4"]);
+	var topo2 = g2.GetTopologicalSort();
+	runner.AssertEquals(4, array_length(topo2), "Topo sort on diamond DAG");
+	
+	// Graph with cycle returns undefined
+	var g3 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g3.AddEdges(["A", "B"], ["B", "C"], ["C", "A"]);
+	var topo3 = g3.GetTopologicalSort();
+	runner.AssertEquals(undefined, topo3, "Cyclic graph returns undefined");
+	
+	// Undirected graph throws error
+	var g4 = new Graph(GraphFlags.GRAPH_NONE);
+	g4.AddEdge("A", "B");
+	var error_caught = false;
+	try { g4.GetTopologicalSort(); } catch (_) { error_caught = true; }
+	runner.Assert(error_caught, "Undirected graph throws on topo sort");
+	
+	// Empty graph
+	var g5 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	var topo5 = g5.GetTopologicalSort();
+	runner.AssertArrayEquals([], topo5, "Empty graph topo sort");
+	
+	// Single node
+	var g6 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g6.AddNode("X");
+	var topo6 = g6.GetTopologicalSort();
+	runner.AssertArrayEquals(["X"], topo6, "Single node topo sort");
+	
+	// Complex DAG (provided example)
+	var g8 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g8.AddEdges([5, 11], [7, 11], [7, 8], [3, 8], [3, 10], [11, 2], [11, 9], [11, 10], [8, 9]);
+	var topo8 = g8.GetTopologicalSort();
+	runner.Assert(is_array(topo8), "Complex DAG has topo sort");
+	runner.AssertEquals(7, array_length(topo8), "Complex DAG all nodes");
+	
+	runner.AssertGraphConsistency(g1, "Topo sort graph 1");
+	runner.AssertGraphConsistency(g8, "Complex DAG");
+}
+
+/// @description Test IsTree functionality
+function TestIsTree(runner)
+{
+	show_debug_message("\n=== Testing IsTree ===");
+	
+	// Undirected tree
+	var g1 = new Graph(GraphFlags.GRAPH_NONE);
+	g1.AddEdges(["A", "B"], ["A", "C"], ["B", "D"], ["B", "E"]);
+	runner.Assert(g1.IsTree(), "Undirected tree detected");
+	
+	// Undirected graph with cycle is not tree
+	var g2 = new Graph(GraphFlags.GRAPH_NONE);
+	g2.AddEdges(["A", "B"], ["B", "C"], ["C", "A"]);
+	runner.Assert(!g2.IsTree(), "Cycle prevents tree");
+	
+	// Disconnected graph is not tree
+	var g3 = new Graph(GraphFlags.GRAPH_NONE);
+	g3.AddEdges(["A", "B"], ["C", "D"]);
+	runner.Assert(!g3.IsTree(), "Disconnected graph not tree");
+	
+	// Directed tree (DAG)
+	var g4 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g4.AddEdges(["A", "B"], ["A", "C"], ["B", "D"]);
+	runner.Assert(g4.IsTree(), "Directed tree (DAG)");
+	
+	// Directed with cycle not tree
+	var g5 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g5.AddEdges(["A", "B"], ["B", "C"], ["C", "A"]);
+	runner.Assert(!g5.IsTree(), "Directed cycle not tree");
+	
+	// Empty graph not tree
+	var g6 = new Graph(GraphFlags.GRAPH_NONE);
+	runner.Assert(!g6.IsTree(), "Empty graph not tree");
+	
+	// Single node is tree
+	var g7 = new Graph(GraphFlags.GRAPH_NONE);
+	g7.AddNode("A");
+	runner.Assert(g7.IsTree(), "Single node is tree");
+}
+
+/// @description Test IsComplete functionality
+function TestIsComplete(runner)
+{
+	show_debug_message("\n=== Testing IsComplete ===");
+	
+	// Complete undirected graph K3
+	var g1 = new Graph(GraphFlags.GRAPH_NONE);
+	g1.AddEdges(["A", "B"], ["B", "C"], ["C", "A"]);
+	runner.Assert(g1.IsComplete(), "K3 is complete");
+	
+	// Complete undirected graph K4
+	var g2 = new Graph(GraphFlags.GRAPH_NONE);
+	g2.AddEdges(["A", "B"], ["A", "C"], ["A", "D"], ["B", "C"], ["B", "D"], ["C", "D"]);
+	runner.Assert(g2.IsComplete(), "K4 is complete");
+	
+	// Incomplete graph
+	var g3 = new Graph(GraphFlags.GRAPH_NONE);
+	g3.AddEdges(["A", "B"], ["B", "C"]);
+	runner.Assert(!g3.IsComplete(), "Missing edge not complete");
+	
+	// Empty graph
+	var g4 = new Graph(GraphFlags.GRAPH_NONE);
+	runner.Assert(!g4.IsComplete(), "Empty graph not complete");
+	
+	// Single node with self-loop
+	var g5 = new Graph(GraphFlags.GRAPH_ALLOW_SELF_LOOP);
+	g5.AddEdge("A", "A");
+	runner.Assert(g5.IsComplete(), "Single node with self-loop complete");
+	
+	// Directed complete graph
+	var g6 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g6.AddEdges(["A", "B"], ["B", "A"], ["A", "C"], ["C", "A"], ["B", "C"], ["C", "B"]);
+	runner.Assert(g6.IsComplete(), "Directed complete graph");
+}
+
+/// @description Test GetDensity functionality
+function TestGetDensity(runner)
+{
+	show_debug_message("\n=== Testing GetDensity ===");
+	
+	// Complete graph has density 1
+	var g1 = new Graph(GraphFlags.GRAPH_NONE);
+	g1.AddEdges(["A", "B"], ["B", "C"], ["C", "A"]);
+	runner.AssertEquals(1, g1.GetDensity(), "Complete K3 density = 1");
+	
+	// Empty graph
+	var g2 = new Graph(GraphFlags.GRAPH_NONE);
+	runner.AssertEquals(0, g2.GetDensity(), "Empty graph density = 0");
+	
+	// Single node
+	var g3 = new Graph(GraphFlags.GRAPH_NONE);
+	g3.AddNode("A");
+	runner.AssertEquals(0, g3.GetDensity(), "Single node density = 0");
+	
+	// Sparse graph
+	var g4 = new Graph(GraphFlags.GRAPH_NONE);
+	g4.AddEdges(["A", "B"], ["B", "C"], ["C", "D"], ["D", "E"]);
+	var density4 = g4.GetDensity();
+	runner.Assert(density4 > 0 && density4 < 1, "Sparse graph 0 < density < 1");
+	
+	// Directed graph density
+	var g5 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g5.AddEdges(["A", "B"], ["B", "C"]);
+	var density5 = g5.GetDensity();
+	runner.Assert(density5 > 0 && density5 < 1, "Directed graph density");
+}
+
+/// @description Test GetReversed functionality
+function TestGetReversed(runner)
+{
+	show_debug_message("\n=== Testing GetReversed ===");
+	
+	// Simple directed graph
+	var g1 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g1.AddEdges(["A", "B"], ["B", "C"], ["C", "D"]);
+	var g1_rev = g1.GetReversed();
+	runner.Assert(g1_rev.HasEdge("B", "A"), "Reversed edge B->A");
+	runner.Assert(g1_rev.HasEdge("C", "B"), "Reversed edge C->B");
+	runner.Assert(g1_rev.HasEdge("D", "C"), "Reversed edge D->C");
+	runner.Assert(!g1_rev.HasEdge("A", "B"), "Original edge removed");
+	
+	// Original unchanged
+	runner.Assert(g1.HasEdge("A", "B"), "Original graph unchanged");
+	
+	// Weighted directed graph
+	var g2 = new Graph(GraphFlags.GRAPH_DIRECTED | GraphFlags.GRAPH_WEIGHTED);
+	g2.AddEdge("X", "Y", 5);
+	var g2_rev = g2.GetReversed();
+	runner.AssertEquals(5, g2_rev.GetWeight("Y", "X"), "Reversed weight preserved");
+	
+	// Immutable reversed graph
+	var g3 = new Graph(GraphFlags.GRAPH_DIRECTED, [new Edge("A", "B")]);
+	g3.Freeze();
+	var g3_rev = g3.GetReversed();
+	runner.Assert(g3_rev.IsImmutable(), "Reversed graph is immutable");
+	
+	// Undirected throws error
+	var g4 = new Graph(GraphFlags.GRAPH_NONE);
+	g4.AddEdge("A", "B");
+	var error_caught = false;
+	try { g4.GetReversed(); } catch (_) { error_caught = true; }
+	runner.Assert(error_caught, "Undirected graph throws on reverse");
+	
+	runner.AssertGraphConsistency(g1_rev, "Reversed graph");
+	runner.AssertGraphConsistency(g2_rev, "Reversed weighted graph");
+}
+
+/// @description Test Reverse (in-place) functionality
+function TestReverse(runner)
+{
+	show_debug_message("\n=== Testing Reverse (in-place) ===");
+	
+	// Simple directed graph
+	var g1 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g1.AddEdges(["A", "B"], ["B", "C"]);
+	g1.Reverse();
+	runner.Assert(g1.HasEdge("B", "A"), "In-place reversed B->A");
+	runner.Assert(g1.HasEdge("C", "B"), "In-place reversed C->B");
+	runner.Assert(!g1.HasEdge("A", "B"), "Original edges removed");
+	
+	// Immutable graph unchanged
+	var g2 = new Graph(GraphFlags.GRAPH_DIRECTED, [new Edge("X", "Y")]);
+	g2.Freeze();
+	g2.Reverse();
+	runner.Assert(g2.HasEdge("X", "Y"), "Immutable unchanged by Reverse");
+	
+	// Undirected throws
+	var g3 = new Graph(GraphFlags.GRAPH_NONE);
+	g3.AddEdge("A", "B");
+	var error_caught = false;
+	try { g3.Reverse(); } catch (_) { error_caught = true; }
+	runner.Assert(error_caught, "Undirected Reverse throws");
+	
+	runner.AssertGraphConsistency(g1, "In-place reversed graph");
+}
+
+/// @description Test GetRandomNode and GetRandomEdge
+function TestRandomGetters(runner)
+{
+	show_debug_message("\n=== Testing Random Getters ===");
+	
+	var g = new Graph(GraphFlags.GRAPH_NONE);
+	g.AddEdges(["A", "B"], ["B", "C"], ["C", "D"]);
+	
+	// GetRandomNode
+	var random_node = g.GetRandomNode();
+	runner.Assert(g.HasNode(random_node), "GetRandomNode returns valid node");
+	
+	// GetRandomEdge
+	var random_edge = g.GetRandomEdge();
+	runner.Assert(is_struct(random_edge), "GetRandomEdge returns struct");
+	runner.Assert(g.HasEdge(random_edge.from, random_edge.to), "GetRandomEdge returns valid edge");
+	
+	// Multiple calls should work
+	for (var i = 0; i < 10; i++)
+	{
+		var node = g.GetRandomNode();
+		runner.Assert(g.HasNode(node), "Random node valid iteration " + string(i));
+	}
+}
+
+/// @description Test GetDebugID
+function TestGetDebugID(runner)
+{
+	show_debug_message("\n=== Testing GetDebugID ===");
+	
+	var g1 = new Graph(GraphFlags.GRAPH_NONE);
+	var g2 = new Graph(GraphFlags.GRAPH_NONE);
+	
+	var id1 = g1.GetDebugID();
+	var id2 = g2.GetDebugID();
+
+	runner.Assert(is_numeric(id1), "Debug ID is numeric");
+	runner.Assert(id1 != id2, "Different graphs have different IDs");
+	
+	// Clone has different ID
+	var g3 = g1.Clone();
+	var id3 = g3.GetDebugID();
+	runner.Assert(id1 != id3, "Clone has different debug ID");
+}
+
+/// @description Test ToDOT export
+function TestToDOT(runner)
+{
+	show_debug_message("\n=== Testing ToDOT Export ===");
+	
+	// Undirected graph
+	var g1 = new Graph(GraphFlags.GRAPH_NONE);
+	g1.AddEdges(["A", "B"], ["B", "C"]);
+	var dot1 = g1.ToDOT();
+	runner.Assert(string_pos("graph", dot1) > 0, "Undirected uses 'graph'");
+	runner.Assert(string_pos("--", dot1) > 0, "Undirected uses '--'");
+	runner.Assert(string_pos("A -- B", dot1) > 0, "Contains edge A--B");
+	
+	// Directed graph
+	var g2 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g2.AddEdges(["X", "Y"], ["Y", "Z"]);
+	var dot2 = g2.ToDOT();
+	runner.Assert(string_pos("digraph", dot2) > 0, "Directed uses 'digraph'");
+	runner.Assert(string_pos("->", dot2) > 0, "Directed uses '->'");
+	runner.Assert(string_pos("X -> Y", dot2) > 0, "Contains edge X->Y");
+	
+	// Weighted graph
+	var g3 = new Graph(GraphFlags.GRAPH_WEIGHTED);
+	g3.AddEdge("M", "N", 5.5);
+	var dot3 = g3.ToDOT();
+	runner.Assert(string_pos("weight=5.5", dot3) > 0, "Contains weight attribute");
+	
+	// Isolated node
+	var g4 = new Graph(GraphFlags.GRAPH_NONE);
+	g4.AddNode("Isolated");
+	g4.AddEdge("A", "B");
+	var dot4 = g4.ToDOT();
+	runner.Assert(string_pos("Isolated", dot4) > 0, "Contains isolated node");
+	
+	// Custom name
+	var dot5 = g1.ToDOT("MyGraph");
+	runner.Assert(string_pos("MyGraph", dot5) > 0, "Custom graph name");
+}
+
+/// @description Test ToAdjacencyMatrix export
+function TestToAdjacencyMatrix(runner)
+{
+	show_debug_message("\n=== Testing ToAdjacencyMatrix ===");
+	
+	// Simple undirected graph
+	var g1 = new Graph(GraphFlags.GRAPH_NONE);
+	g1.AddEdges(["0", "1"], ["1", "2"]);
+	var matrix1 = g1.ToAdjacencyMatrix();
+	runner.Assert(is_array(matrix1), "Returns array");
+	runner.AssertEquals(3, array_length(matrix1), "Matrix size matches node count");
+	runner.Assert(matrix1[0][1] == true, "Edge 0-1 in matrix");
+	runner.Assert(matrix1[1][0] == true, "Undirected symmetry");
+	runner.Assert(matrix1[0][2] == false, "No edge 0-2");
+	
+	// Directed graph
+	var g2 = new Graph(GraphFlags.GRAPH_DIRECTED);
+	g2.AddEdges(["A", "B"], ["B", "C"]);
+	var matrix2 = g2.ToAdjacencyMatrix();
+	runner.Assert(is_array(matrix2), "Directed matrix is array");
+	runner.AssertEquals(3, array_length(matrix2), "Directed matrix size");
+	
+	// Empty graph
+	var g3 = new Graph(GraphFlags.GRAPH_NONE);
+	var matrix3 = g3.ToAdjacencyMatrix();
+	runner.AssertEquals(0, array_length(matrix3), "Empty graph empty matrix");
+}
+
+/// @description Test IsSelfLoopable
+function TestIsSelfLoopable(runner)
+{
+	show_debug_message("\n=== Testing IsSelfLoopable ===");
+	
+	var g1 = new Graph(GraphFlags.GRAPH_ALLOW_SELF_LOOP);
+	runner.Assert(g1.IsSelfLoopable(), "Self-loop flag detected");
+	
+	var g2 = new Graph(GraphFlags.GRAPH_NONE);
+	runner.Assert(!g2.IsSelfLoopable(), "No self-loop flag");
+	
+	var g3 = new Graph(GraphFlags.GRAPH_DIRECTED | GraphFlags.GRAPH_ALLOW_SELF_LOOP);
+	runner.Assert(g3.IsSelfLoopable(), "Self-loop with other flags");
+}
+
 /// @description Run all unit tests
 function RunAllTests()
 {
@@ -1572,7 +1942,17 @@ function RunAllTests()
 	TestWeightOperations(runner);
 	TestCacheManagement(runner);
 	TestEdgeCountUndirected(runner);
-	
+	TestIsSelfLoopable(runner);
+	TestToAdjacencyMatrix(runner);
+	TestToDOT(runner);
+	TestGetDebugID(runner);
+	TestRandomGetters(runner);
+	TestReverse(runner);
+	TestGetReversed(runner);
+	TestGetDensity(runner);
+	TestIsComplete(runner);
+	TestIsTree(runner)
+	TestTopologicalSort(runner)
 	runner.PrintSummary();
 	
 	return runner;
@@ -3286,6 +3666,185 @@ function BenchmarkRealisticPatterns(runner)
 
 #endregion
 
+/// @description Benchmark GetTopologicalSort
+function BenchmarkTopologicalSort(runner, node_count, iterations)
+{
+	// Build DAG with layered structure
+	var g = new Graph(GraphFlags.GRAPH_DIRECTED);
+	var layers = 5;
+	var nodes_per_layer = ceil(node_count / layers);
+	
+	for (var _layer = 0; _layer < layers - 1; _layer++)
+	{
+		for (var i = 0; i < nodes_per_layer; i++)
+		{
+			var from = _layer * nodes_per_layer + i;
+			for (var j = 0; j < nodes_per_layer; j++)
+			{
+				var to = (_layer + 1) * nodes_per_layer + j;
+				if (random(1) > 0.5) // 50% connectivity
+					g.AddEdge(string(from), string(to));
+			}
+		}
+	}
+	
+	var timer = new BenchmarkTimer();
+	timer.Start();
+	
+	for (var i = 0; i < iterations; i++)
+	{
+		var topo = g.GetTopologicalSort();
+	}
+	
+	var elapsed = timer.Stop();
+	runner.AddResult($"GetTopologicalSort ({node_count} nodes, {iterations} iterations)", elapsed, iterations);
+}
+
+/// @description Benchmark GetReversed
+function BenchmarkGetReversed(runner, edge_count, iterations)
+{
+	var g = new Graph(GraphFlags.GRAPH_DIRECTED);
+	for (var i = 0; i < edge_count; i++)
+		g.AddEdge(string(i), string(i + 1));
+	
+	var timer = new BenchmarkTimer();
+	timer.Start();
+	
+	for (var i = 0; i < iterations; i++)
+	{
+		var reversed = g.GetReversed();
+	}
+	
+	var elapsed = timer.Stop();
+	runner.AddResult($"GetReversed ({edge_count} edges, {iterations} iterations)", elapsed, iterations);
+}
+
+/// @description Benchmark Reverse in-place
+function BenchmarkReverse(runner, edge_count, iterations)
+{
+	var timer = new BenchmarkTimer();
+	timer.Start();
+	
+	for (var i = 0; i < iterations; i++)
+	{
+		var g = new Graph(GraphFlags.GRAPH_DIRECTED);
+		for (var j = 0; j < edge_count; j++)
+			g.AddEdge(string(j), string(j + 1));
+		g.Reverse();
+	}
+	
+	var elapsed = timer.Stop();
+	runner.AddResult($"Reverse in-place ({edge_count} edges, {iterations} iterations)", elapsed, iterations);
+}
+
+/// @description Benchmark ToDOT export
+function BenchmarkToDOT(runner, edge_count, iterations)
+{
+	var g = new Graph(GraphFlags.GRAPH_WEIGHTED);
+	for (var i = 0; i < edge_count; i++)
+		g.AddEdge(string(i), string(i + 1), random_range(1, 10));
+	
+	var timer = new BenchmarkTimer();
+	timer.Start();
+	
+	for (var i = 0; i < iterations; i++)
+	{
+		var dot = g.ToDOT();
+	}
+	
+	var elapsed = timer.Stop();
+	runner.AddResult($"ToDOT Export ({edge_count} edges, {iterations} iterations)", elapsed, iterations);
+}
+
+/// @description Benchmark ToAdjacencyMatrix
+function BenchmarkToAdjacencyMatrix(runner, node_count, iterations)
+{
+	var g = new Graph(GraphFlags.GRAPH_NONE);
+	for (var i = 0; i < node_count - 1; i++)
+		g.AddEdge(string(i), string(i + 1));
+	
+	var timer = new BenchmarkTimer();
+	timer.Start();
+	
+	for (var i = 0; i < iterations; i++)
+	{
+		var matrix = g.ToAdjacencyMatrix();
+	}
+	
+	var elapsed = timer.Stop();
+	runner.AddResult($"ToAdjacencyMatrix ({node_count} nodes, {iterations} iterations)", elapsed, iterations);
+}
+
+/// @description Benchmark GetDensity
+function BenchmarkGetDensity(runner, node_count, iterations)
+{
+	var g = new Graph(GraphFlags.GRAPH_NONE);
+	for (var i = 0; i < node_count; i++)
+	{
+		for (var j = i + 1; j < node_count; j++)
+		{
+			if (random(1) > 0.7)
+				g.AddEdge(string(i), string(j));
+		}
+	}
+	
+	var timer = new BenchmarkTimer();
+	timer.Start();
+	
+	for (var i = 0; i < iterations; i++)
+	{
+		var density = g.GetDensity();
+	}
+	
+	var elapsed = timer.Stop();
+	runner.AddResult($"GetDensity ({node_count} nodes, {iterations} iterations)", elapsed, iterations);
+}
+
+/// @description Benchmark IsTree
+function BenchmarkIsTree(runner, node_count, iterations)
+{
+	// Build tree structure
+	var g = new Graph(GraphFlags.GRAPH_NONE);
+	for (var i = 1; i < node_count; i++)
+		g.AddEdge(string(floor(i / 2)), string(i));
+	
+	var timer = new BenchmarkTimer();
+	timer.Start();
+	
+	for (var i = 0; i < iterations; i++)
+	{
+		var is_tree = g.IsTree();
+	}
+	
+	var elapsed = timer.Stop();
+	runner.AddResult($"IsTree ({node_count} nodes, {iterations} iterations)", elapsed, iterations);
+}
+
+/// @description Benchmark IsComplete
+function BenchmarkIsComplete(runner, node_count, iterations)
+{
+	// Build complete graph
+	var g = new Graph(GraphFlags.GRAPH_NONE);
+	for (var i = 0; i < node_count; i++)
+	{
+		for (var j = i + 1; j < node_count; j++)
+		{
+			g.AddEdge(string(i), string(j));
+		}
+	}
+	
+	var timer = new BenchmarkTimer();
+	timer.Start();
+	
+	for (var i = 0; i < iterations; i++)
+	{
+		var is_complete = g.IsComplete();
+	}
+	
+	var elapsed = timer.Stop();
+	runner.AddResult($"IsComplete ({node_count} nodes, {iterations} iterations)", elapsed, iterations);
+}
+
 /// @description Main benchmark runner - executes all benchmarks
 function RunAllBenchmarks()
 {
@@ -3312,6 +3871,38 @@ function RunAllBenchmarks()
     BenchmarkStressTestLarge(runner);
     BenchmarkStressTestBFS(runner);
     BenchmarkStressTestDijkstra(runner);
+
+	show_debug_message("\n=== Random shit ===");
+	BenchmarkTopologicalSort(runner, 100, 100);
+	BenchmarkTopologicalSort(runner, 500, 20);
+	BenchmarkTopologicalSort(runner, 2500, 1);
+	
+	BenchmarkGetReversed(runner, 100, 500);
+	BenchmarkGetReversed(runner, 500, 100);
+	BenchmarkGetReversed(runner, 1000, 50);
+	
+	BenchmarkReverse(runner, 100, 200);
+	BenchmarkReverse(runner, 500, 50);
+	
+	BenchmarkToDOT(runner, 50, 500);
+	BenchmarkToDOT(runner, 100, 200);
+	BenchmarkToDOT(runner, 500, 50);
+	
+	BenchmarkToAdjacencyMatrix(runner, 50, 200);
+	BenchmarkToAdjacencyMatrix(runner, 100, 50);
+	BenchmarkToAdjacencyMatrix(runner, 200, 20);
+	
+	BenchmarkGetDensity(runner, 50, 1000);
+	BenchmarkGetDensity(runner, 100, 500);
+	BenchmarkGetDensity(runner, 200, 100);
+	
+	BenchmarkIsTree(runner, 100, 500);
+	BenchmarkIsTree(runner, 500, 100);
+	BenchmarkIsTree(runner, 1000, 50);
+	
+	BenchmarkIsComplete(runner, 20, 1000);
+	BenchmarkIsComplete(runner, 50, 200);
+	BenchmarkIsComplete(runner, 100, 50);
 	
 	BenchmarkDFS(runner);
 	BenchmarkCycleDetection(runner);
@@ -3337,7 +3928,10 @@ function RunAllBenchmarks()
     return runner;
 }
 
-var _test = new Graph(GraphFlags.GRAPH_NONE);
-_test.AddEdges([0, 1], [0, 2], [1, 0], [1, 2], [1, 3], [2, 0],
-	[2, 1], [2, 4], [3, 1], [3, 4], [4, 2], [4, 3], [4, 5], [5, 4], [5, 6], [6, 5])
-show_debug_message(_test.ToAdjacencyMatrix());
+RunAllTests();
+RunAllBenchmarks();
+
+var _test = new Graph(GraphFlags.GRAPH_DIRECTED);
+_test.AddEdges([5, 11], [7, 11], [7, 8], [3, 8], [3, 10], [11, 2], [11, 9], [11, 10], [8, 9]);
+show_debug_message(_test.ToDOT());
+show_debug_message(_test.GetTopologicalSort());

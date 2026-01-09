@@ -31,6 +31,7 @@ function Graph(flags, builder = undefined) constructor
 	static __graph_count = 0;
 
 	self.__graph_id = __graph_count;
+	__graph_count++;
 	self.__flags = flags
 	self.__flags &= ~GraphFlags.GRAPH_IMMUTABLE;
 
@@ -282,6 +283,58 @@ function Graph(flags, builder = undefined) constructor
 		}
 		ds_priority_destroy(_queue);
 		return ({distances: _distances, previous: _prev, visited: _visited});
+	}
+
+	static GetTopologicalSort = function()
+	{
+		if (!self.IsDirected())
+			self.__throw__("Topological sort requires a directed graph");
+		var _nodes = self.GetNodes();
+		var _in_degree = {};
+		var _queue = ds_queue_create();
+		var _result = [];
+
+		for (var i = 0; i < self.__node_count; i++)
+			_in_degree[$ _nodes[i]] = 0;
+
+		for (var i = 0; i < self.__node_count; i++)
+		{
+			var _from = _nodes[i];
+			var _neighbors = self.GetNeighbors(_from);
+			for (var j = 0; j < array_length(_neighbors); j++)
+			{
+				var _to = _neighbors[j];
+				if (_from != _to)
+					_in_degree[$ _to]++;
+			}
+		}
+
+		for (var i = 0; i < self.__node_count; i++)
+	    {
+			var _node = _nodes[i];
+			if (_in_degree[$ _node] == 0)
+				ds_queue_enqueue(_queue, _node);
+		}
+
+		while (!ds_queue_empty(_queue))
+		{
+			var _top = ds_queue_dequeue(_queue);
+			array_push(_result, _top);
+			var _neighbors = self.GetNeighbors(_top);
+			var _neighbor_count = array_length(_neighbors)
+			for (var i = 0; i < _neighbor_count; i++)
+			{
+				var _neighbor = _neighbors[i];
+				if (_neighbor == _top)
+					continue;
+				if (--_in_degree[$ _neighbor] == 0)
+					ds_queue_enqueue(_queue, _neighbor);
+			}
+		}
+		ds_queue_destroy(_queue);
+		if (array_length(_result) != self.__node_count)
+			return (undefined);
+		return (_result);
 	}
 
 	#endregion
@@ -697,13 +750,13 @@ function Graph(flags, builder = undefined) constructor
 	static GetRandomNode = function()
 	{
 		gml_pragma("forceinline");
-		return (self.GetNodes()[irandom(self.GetNodeCount())]);
+		return (self.GetNodes()[irandom(self.GetNodeCount() - 1)]);
 	}
 
 	static GetRandomEdge = function()
 	{
 		gml_pragma("forceinline");
-		return (self.GetEdges()[irandom(self.GetEdgeCount())]);
+		return (self.GetEdges()[irandom(self.GetEdgeCount() - 1)]);
 	}
 
 	static GetDebugID = function()
@@ -760,21 +813,43 @@ function Graph(flags, builder = undefined) constructor
 	static ToAdjacencyMatrix = function()
 	{
 		var _nodes = self.GetNodes();
+		var _n = array_length(_nodes);
+		if (_n == 0)
+			return ([]);
+
 		array_sort(_nodes, true);
-		var _array_y = array_create(self.__node_count);
-		for (var _y = 0; _y < self.__node_count; _y++)
+
+		var _node_index = {};
+		for (var i = 0; i < _n; i++)
+			_node_index[$ _nodes[i]] = i;
+		var _matrix = array_create(_n);
+		for (var i = 0; i < _n; i++)
+			_matrix[i] = array_create(_n, false);
+		var _edges = self.GetEdges();
+		for (var i = 0; i < array_length(_edges); i++)
 		{
-			var _array_x = array_create(self.__node_count);
-			for (var _x = 0; _x < self.__node_count; _x++)
-				_array_x[_x] = self.HasEdge(_x, _y);
-			_array_y[_y] = _array_x;
+			var _e = _edges[i];
+			var _from_idx = _node_index[$ _e.from];
+			var _to_idx = _node_index[$ _e.to];
+		
+			_matrix[_from_idx][_to_idx] = true;
+			if (!self.IsDirected())
+				_matrix[_to_idx][_from_idx] = true;
 		}
-		return (_array_y);
+		return (_matrix);
 	}
 
 	#endregion
 
 	#region Graph Manipulation
+
+	static OptimizeForReading = function()
+	{
+		gml_pragma("forceinline");
+		self.GetEdges();
+		self.GetNodes();
+		self.GetComponents();
+	}
 
 	static Reverse = function()
 	{
@@ -790,7 +865,7 @@ function Graph(flags, builder = undefined) constructor
 			self.AddEdge(_edge.to, _edge.from, _edge.weight);
 		}
 		self.__edge_dirty = true;
-	    self.__structure_dirty = true;
+		self.__structure_dirty = true;
 		return (self);
 	}
 
@@ -870,6 +945,7 @@ function Graph(flags, builder = undefined) constructor
 	{
 		gml_pragma("forceinline");
 		/*Immutable Graph could be more optimized in the future*/
+		self.OptimizeForReading();
 		self.__flags |= GraphFlags.GRAPH_IMMUTABLE;
 		return (self);
 	}
