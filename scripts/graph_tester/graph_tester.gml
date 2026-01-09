@@ -3928,10 +3928,9 @@ function RunAllBenchmarks()
     return runner;
 }
 
-RunAllTests();
-RunAllBenchmarks();
-
 var _test = new Graph(GraphFlags.GRAPH_DIRECTED);
-_test.AddEdges([5, 11], [7, 11], [7, 8], [3, 8], [3, 10], [11, 2], [11, 9], [11, 10], [8, 9]);
+_test.AddEdges([1, 2], [3, 4]);
+var _test2 = new Graph(GraphFlags.GRAPH_DIRECTED);
+_test2.AddEdges([2, 1], [4, 3], [5, 8]);
+_test.Merge(_test2);
 show_debug_message(_test.ToDOT());
-show_debug_message(_test.GetTopologicalSort());

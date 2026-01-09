@@ -1,10 +1,11 @@
 
-/// @description GraphRandom
-/// @param {real} flags Graph flags
-/// @param {real} nodes_count Number of nodes
-/// @param {real} p Probability of edge creation (0-1)
-/// @param {real} min_weight Minimum edge weight (optional, default 1)
-/// @param {real} max_weight Maximum edge weight (optional, default 10)
+/// @description Creates a random graph using the Erdős-Rényi model where each possible edge is included with probability p
+/// @param {Real} flags Bitwise flags from GraphFlags enum to configure the graph
+/// @param {Real} nodes_count Number of nodes to create in the graph
+/// @param {Real} p Probability of edge creation between any two nodes (0-1, clamped)
+/// @param {Real} [min_weight] Minimum edge weight for weighted graphs (default: 1)
+/// @param {Real} [max_weight] Maximum edge weight for weighted graphs (default: 10)
+/// @return {Struct.Graph} Returns a new Graph instance with randomly generated edges
 function GraphRandom(flags, nodes_count, p, min_weight = 1, max_weight = 10)
 {
 	var _graph = new Graph(flags);
@@ -24,6 +25,12 @@ function GraphRandom(flags, nodes_count, p, min_weight = 1, max_weight = 10)
 	return (_graph);
 }
 
+/// @description Creates a cycle graph where nodes form a closed loop (0->1->2->...->n->0)
+/// @param {Real} flags Bitwise flags from GraphFlags enum to configure the graph
+/// @param {Real} nodes_count Number of nodes to create in the cycle
+/// @param {Real} [min_weight] Minimum edge weight for weighted graphs (default: 1)
+/// @param {Real} [max_weight] Maximum edge weight for weighted graphs (default: 10)
+/// @return {Struct.Graph} Returns a new Graph instance forming a cycle structure
 function GraphCycle(flags, nodes_count, min_weight = 1, max_weight = 10)
 {
 	var _graph = new Graph(flags);
@@ -35,6 +42,12 @@ function GraphCycle(flags, nodes_count, min_weight = 1, max_weight = 10)
 	return (_graph);
 }
 
+/// @description Creates a path graph where nodes form a linear chain (0->1->2->...->n)
+/// @param {Real} flags Bitwise flags from GraphFlags enum to configure the graph
+/// @param {Real} nodes_count Number of nodes to create in the path (results in nodes_count+1 total nodes)
+/// @param {Real} [min_weight] Minimum edge weight for weighted graphs (default: 1)
+/// @param {Real} [max_weight] Maximum edge weight for weighted graphs (default: 10)
+/// @return {Struct.Graph} Returns a new Graph instance forming a linear path structure
 function GraphPath(flags, nodes_count, min_weight = 1, max_weight = 10)
 {
 	var _graph = new Graph(flags);
@@ -43,6 +56,14 @@ function GraphPath(flags, nodes_count, min_weight = 1, max_weight = 10)
 	return (_graph);
 }
 
+/// @description Creates a grid graph where nodes are arranged in a 2D lattice with optional diagonal connections
+/// @param {Real} flags Bitwise flags from GraphFlags enum to configure the graph
+/// @param {Real} rows Number of rows in the grid
+/// @param {Real} cols Number of columns in the grid
+/// @param {Bool} [diag] Whether to include diagonal connections (default: false)
+/// @param {Real} [min_weight] Minimum edge weight for weighted graphs (default: 1)
+/// @param {Real} [max_weight] Maximum edge weight for weighted graphs (default: 10)
+/// @return {Struct.Graph} Returns a new Graph instance with grid topology. Nodes are named as "x:y" coordinates
 function GraphGrid(flags, rows, cols, diag = false, min_weight = 1, max_weight = 10)
 {
 	var _graph = new Graph(flags);

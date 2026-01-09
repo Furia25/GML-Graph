@@ -285,6 +285,8 @@ function Graph(flags, builder = undefined) constructor
 		return ({distances: _distances, previous: _prev, visited: _visited});
 	}
 
+	/// @description Gets a topological ordering of the graph nodes (valid only for directed acyclic graphs)
+	/// @return {Array<Any>|Undefined} Returns array of nodes in topological order, or undefined if graph contains a cycle
 	static GetTopologicalSort = function()
 	{
 		if (!self.IsDirected())
@@ -365,6 +367,8 @@ function Graph(flags, builder = undefined) constructor
 		return (self.__flags & GraphFlags.GRAPH_WEIGHTED) != 0;
 	}
 
+	/// @description Checks if the graph allows self-loop edges (edges from a node to itself)
+	/// @return {Bool} Returns true if self-loops are allowed, false otherwise
 	static IsSelfLoopable = function()
 	{
 		gml_pragma("forceinline");
@@ -408,36 +412,48 @@ function Graph(flags, builder = undefined) constructor
 		return (self.GetComponentsCount() == 1);
 	}
 
+	/// @description Checks if the graph contains any cycles
+	/// @return {Bool} Returns true if at least one cycle exists, false otherwise
 	static HasCycle = function()
 	{
 		gml_pragma("forceinline");
 		return (self.GetCycle() != undefined);
 	}
 
+	/// @description Checks if the graph is cyclic (contains at least one cycle)
+	/// @return {Bool} Returns true if graph contains cycles, false otherwise
 	static IsCyclic = function()
 	{
 		gml_pragma("forceinline");
 		return (self.HasCycle());
 	}
 
+	/// @description Checks if the graph is acyclic (contains no cycles)
+	/// @return {Bool} Returns true if graph has no cycles, false otherwise
 	static IsAcyclic = function()
 	{
 		gml_pragma("forceinline");
 		return (!self.HasCycle());
 	}
 
+	/// @description Checks if the graph is a Directed Acyclic Graph (DAG)
+	/// @return {Bool} Returns true if graph is both directed and acyclic, false otherwise
 	static IsDAG = function()
 	{
 		gml_pragma("forceinline");
 		return (self.IsDirected() && self.IsAcyclic());
 	}
 
+	/// @description Checks if the graph forms a tree structure
+	/// @return {Bool} Returns true if graph is a valid tree (directed DAG or undirected connected acyclic), false otherwise
 	static IsTree = function()
 	{
 		gml_pragma("forceinline");
 		return (self.IsDirected() ? self.IsDAG() : self.IsConnected() && self.IsAcyclic());
 	}
 
+	/// @description Checks if the graph is complete (every node is connected to every other node)
+	/// @return {Bool} Returns true if graph has all possible edges, false otherwise
 	static IsComplete = function()
 	{
 		gml_pragma("forceinline");
@@ -727,6 +743,8 @@ function Graph(flags, builder = undefined) constructor
 		return (self.GetEdgeCount() / (_n * _divisor / (self.IsDirected() ? 1 : 2)));
 	}
 
+	/// @description Finds a cycle in the graph if one exists
+	/// @return {Array<Any>|Undefined} Returns array of nodes forming a cycle, or undefined if graph is acyclic
 	static GetCycle = function()
 	{
 		gml_pragma("forceinline");
@@ -747,24 +765,32 @@ function Graph(flags, builder = undefined) constructor
 		return (undefined);
 	}
 
+	/// @description Selects a random node from the graph
+	/// @return {Any} Returns a randomly selected node identifier
 	static GetRandomNode = function()
 	{
 		gml_pragma("forceinline");
 		return (self.GetNodes()[irandom(self.GetNodeCount() - 1)]);
 	}
 
+	/// @description Selects a random edge from the graph
+	/// @return {Struct.Edge} Returns a randomly selected Edge struct
 	static GetRandomEdge = function()
 	{
 		gml_pragma("forceinline");
 		return (self.GetEdges()[irandom(self.GetEdgeCount() - 1)]);
 	}
 
+	/// @description Gets the internal debug ID of this graph instance
+	/// @return {Real} Returns the unique graph instance identifier
 	static GetDebugID = function()
 	{
 		gml_pragma("forceinline");
 		return (self.__graph_id);
 	}
 
+	/// @description Creates a new graph with all edge directions reversed (directed graphs only)
+	/// @return {Struct.Graph} Returns a new Graph instance with reversed edges
 	static GetReversed = function()
 	{
 		gml_pragma("forceinline");
@@ -780,6 +806,9 @@ function Graph(flags, builder = undefined) constructor
 
 	#region Export / Import
 
+	/// @description Exports the graph to DOT format for visualization with Graphviz
+	/// @param {String} [name] The name of the graph in DOT format (default: "G")
+	/// @return {String} Returns DOT format string representation of the graph
 	static ToDOT = function(name = "G")
 	{
 		var _buffer = buffer_create(2048, buffer_grow, 1);
@@ -810,6 +839,8 @@ function Graph(flags, builder = undefined) constructor
 		return (_result);
 	}
 
+	/// @description Exports the graph as an adjacency matrix
+	/// @return {Array<Array<Bool>>} Returns 2D array where matrix[i][j] is true if edge exists from node i to node j. Returns empty array if graph has no nodes
 	static ToAdjacencyMatrix = function()
 	{
 		var _nodes = self.GetNodes();
@@ -843,6 +874,8 @@ function Graph(flags, builder = undefined) constructor
 
 	#region Graph Manipulation
 
+	/// @description Optimizes the graph for read-heavy operations by pre-caching edges, nodes, and components
+	/// @return {Struct.self} Returns self for method chaining
 	static OptimizeForReading = function()
 	{
 		gml_pragma("forceinline");
@@ -851,6 +884,8 @@ function Graph(flags, builder = undefined) constructor
 		self.GetComponents();
 	}
 
+	/// @description Reverses all edge directions in the graph (directed graphs only, modifies in place)
+	/// @return {Struct.self} Returns self for method chaining
 	static Reverse = function()
 	{
 		if (self.IsImmutable())
@@ -937,6 +972,17 @@ function Graph(flags, builder = undefined) constructor
 			}
 		}
 		return (_result);
+	}
+
+	/// @description Merges another graph into this graph by adding all its edges
+	/// @param {Struct.Graph} graph The source graph to merge from
+	/// @return {Struct.self} Returns self for method chaining
+	static Merge = function(graph)
+	{
+		gml_pragma("forceinline");
+		if (!self.IsImmutable())
+			self.AddEdges(graph.GetEdges());
+		return (self);
 	}
 
 	/// @description Makes the graph immutable (read-only), preventing all modifications
