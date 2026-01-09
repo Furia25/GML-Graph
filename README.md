@@ -1,3 +1,7 @@
+<p align="center">
+    <img alt="GML-Graph-icon" src="https://github.com/user-attachments/assets/bb995962-9021-4df3-a1bf-e457bb640033" width="25%"/>
+</p>
+
 # Graph Library for GameMaker
 A comprehensive graph data structure implementation for the latest versions of GameMaker Studio 2. This project aims to provide the most complete set of graph theory features and algorithms possible, while serving as a practical exploration of graph theory concepts.
 
